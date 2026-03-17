@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 360px; min-height: 200px;
+    background: #0d1117; color: #e6edf3;
+    font-family: system-ui, sans-serif; font-size: 13px;
+    padding: 16px;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .header h1 { font-size: 16px; font-weight: 600; }
+  .header h1 span { color: #58a6ff; }
+  .badge {
+    padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  }
+  .badge.on { background: rgba(63,185,80,0.15); color: #3fb950; }
+  .badge.off { background: rgba(248,81,73,0.15); color: #f85149; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px; text-align: center;
+  }
+  .stat .label { color: #8b949e; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+  .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .stat:nth-child(1) .value { color: #d29922; }
+  .stat:nth-child(2) .value { color: #3fb950; }
+  .stat:nth-child(3) .value { color: #f85149; }
+  .stat:nth-child(4) .value { color: #58a6ff; }
+
+  .config {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 12px; margin-bottom: 12px;
+  }
+  .config-title {
+    font-size: 11px; color: #8b949e; text-transform: uppercase;
+    letter-spacing: .5px; margin-bottom: 8px;
+  }
+  .config-row { margin-bottom: 8px; }
+  .config-row:last-child { margin-bottom: 0; }
+  .config-row label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+  .config-row input {
+    width: 100%; padding: 6px 8px; border-radius: 4px;
+    border: 1px solid #30363d; background: #0d1117; color: #e6edf3;
+    font-size: 12px; font-family: monospace;
+  }
+  .config-row input:focus { outline: none; border-color: #58a6ff; }
+  .btn {
+    width: 100%; padding: 6px; border-radius: 4px; border: none;
+    background: #238636; color: #fff; font-size: 12px; font-weight: 600;
+    cursor: pointer; margin-top: 8px;
+  }
+  .btn:hover { background: #2ea043; }
+  .btn.saved { background: #30363d; }
+
+  .logs {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px;
+    max-height: 160px; overflow-y: auto;
+    font-family: monospace; font-size: 11px; line-height: 1.5;
+  }
+  .log { margin-bottom: 2px; }
+  .log .time { color: #484f58; margin-right: 6px; }
+  .log.info .msg { color: #e6edf3; }
+  .log.success .msg { color: #3fb950; }
+  .log.error .msg { color: #f85149; }
+  .log.warn .msg { color: #d29922; }
+
+  .empty { color: #484f58; text-align: center; padding: 20px; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>Open</span>Crawl</h1>
+    <span id="badge" class="badge off">未连接</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">进行中</div><div class="value" id="active">0</div></div>
+    <div class="stat"><div class="label">完成</div><div class="value" id="completed">0</div></div>
+    <div class="stat"><div class="label">失败</div><div class="value" id="failed">0</div></div>
+    <div class="stat"><div class="label">积分</div><div class="value" id="credits">0</div></div>
+  </div>
+
+  <div class="config">
+    <div class="config-title">配置</div>
+    <div class="config-row">
+      <label>服务端地址</label>
+      <input id="wsUrl" type="text" placeholder="ws://localhost:9876">
+    </div>
+    <div class="config-row">
+      <label>API Key (获取积分奖励)</label>
+      <input id="apiKey" type="text" placeholder="ak_xxx (可选)">
+    </div>
+    <button id="saveBtn" class="btn">保存并重连</button>
+  </div>
+
+  <div id="logs" class="logs">
+    <div class="empty">等待任务...</div>
+  </div>
+
+<script src="popup.js"></script>
+</body>
+</html>

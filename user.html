@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCrawl - 用户面板</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2333;
+    --border: #30363d; --text: #e6edf3; --text2: #8b949e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff; --yellow: #d29922;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header h1 span { color: var(--blue); }
+  .header .user-name { color: var(--text2); font-size: 13px; }
+
+  .container { max-width: 720px; margin: 0 auto; padding: 20px 24px; }
+
+  /* 登录 */
+  .login-box {
+    max-width: 400px; margin: 80px auto; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; padding: 32px;
+  }
+  .login-box h2 { margin-bottom: 8px; font-size: 16px; }
+  .login-box .sub { color: var(--text2); font-size: 13px; margin-bottom: 16px; }
+  .input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 14px; font-family: monospace; margin-bottom: 12px; }
+  .input:focus { outline: none; border-color: var(--blue); }
+  .btn { padding: 10px 20px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: var(--blue); color: #fff; width: 100%; }
+  .btn-primary:hover { opacity: 0.9; }
+  .error-msg { color: var(--red); font-size: 13px; margin-top: 8px; display: none; }
+
+  /* 卡片 */
+  .cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 24px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; text-align: center;
+  }
+  .card .label { color: var(--text2); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .card .val { font-size: 32px; font-weight: 700; margin-top: 6px; }
+  .card:nth-child(1) .val { color: var(--blue); }
+  .card:nth-child(2) .val { color: var(--yellow); }
+  .card:nth-child(3) .val { color: var(--green); }
+
+  /* Token 展示 */
+  .token-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px;
+  }
+  .token-box h3 { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .token-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .token-value {
+    flex: 1; font-family: monospace; font-size: 14px; background: var(--bg);
+    padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border);
+    color: var(--text); word-break: break-all;
+  }
+  .copy-btn {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .copy-btn:hover { border-color: var(--blue); }
+
+  /* 使用示例 */
+  .example-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px;
+  }
+  .example-box h3 { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+  .code {
+    font-family: 'Cascadia Code','Fira Code',monospace; font-size: 12px;
+    background: var(--bg); padding: 12px; border-radius: 6px;
+    color: var(--text); line-height: 1.6; overflow-x: auto; white-space: pre;
+  }
+  .code .comment { color: var(--text2); }
+  .code .str { color: var(--green); }
+  .code .key { color: var(--blue); }
+
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .section-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 16px; font-size: 11px; color: var(--text2); border-bottom: 1px solid var(--border); text-transform: uppercase; }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: monospace; font-size: 12px; color: var(--text2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge.success { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.failed { background: rgba(248,81,73,0.15); color: var(--red); }
+  .empty-state { padding: 40px; text-align: center; color: var(--text2); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Open</span>Crawl</h1>
+  <span id="headerUser" class="user-name"></span>
+</div>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-box">
+    <h2>用户面板</h2>
+    <div class="sub">输入你的 API Key 查看账户信息</div>
+    <input id="userKey" class="input" type="text" placeholder="ak_xxxxxxxxxxxxxxxxxxxxxxxx">
+    <button class="btn btn-primary" onclick="login()">查看</button>
+    <div id="loginError" class="error-msg"></div>
+  </div>
+</div>
+
+<!-- 用户面板 -->
+<div id="userView" style="display:none">
+  <div class="container">
+    <div class="cards">
+      <div class="card"><div class="label">剩余积分</div><div class="val" id="uCredits">0</div></div>
+      <div class="card"><div class="label">已消费</div><div class="val" id="uUsed">0</div></div>
+      <div class="card"><div class="label">已赚取</div><div class="val" id="uEarned">0</div></div>
+    </div>
+
+    <div class="token-box">
+      <h3>你的 API Key</h3>
+      <div class="token-row">
+        <div class="token-value" id="tokenDisplay"></div>
+        <button class="copy-btn" onclick="copyToken()">复制</button>
+      </div>
+    </div>
+
+    <div class="example-box">
+      <h3>使用示例</h3>
+      <div class="code" id="codeExample"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">我的使用记录</div>
+      <div id="historyTable"><div class="empty-state">暂无记录</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let userKey = '';
+
+  async function login() {
+    userKey = document.getElementById('userKey').value.trim();
+    const errEl = document.getElementById('loginError');
+    if (!userKey) { errEl.textContent = '请输入 API Key'; errEl.style.display = 'block'; return; }
+
+    try {
+      const res = await fetch('/api/balance', { headers: { 'Authorization': 'Bearer ' + userKey } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error);
+
+      document.getElementById('loginView').style.display = 'none';
+      document.getElementById('userView').style.display = 'block';
+      document.getElementById('headerUser').textContent = data.name || '用户';
+
+      renderProfile(data);
+      loadHistory();
+    } catch(e) {
+      errEl.textContent = e.message || '无效的 API Key';
+      errEl.style.display = 'block';
+    }
+  }
+
+  function renderProfile(data) {
+    document.getElementById('uCredits').textContent = data.credits;
+    document.getElementById('uUsed').textContent = data.totalUsed || 0;
+    document.getElementById('uEarned').textContent = data.totalEarned || 0;
+    document.getElementById('tokenDisplay').textContent = userKey;
+
+    const host = location.origin;
+    document.getElementById('codeExample').innerHTML =
+`<span class="comment"># cURL</span>
+curl -X POST ${esc(host)}/api/crawl \\
+  -H <span class="str">"Authorization: Bearer ${esc(userKey)}"</span> \\
+  -H <span class="str">"Content-Type: application/json"</span> \\
+  -d <span class="str">'{"url": "https://example.com"}'</span>
+
+<span class="comment"># Python</span>
+<span class="key">import</span> requests
+res = requests.post(<span class="str">"${esc(host)}/api/crawl"</span>,
+    headers={<span class="str">"Authorization"</span>: <span class="str">"Bearer ${esc(userKey)}"</span>},
+    json={<span class="str">"url"</span>: <span class="str">"https://example.com"</span>})
+data = res.json()
+<span class="comment"># data["downloadUrl"] → 下载爬取结果</span>`;
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/user/history', { headers: { 'Authorization': 'Bearer ' + userKey } });
+      const data = await res.json();
+      renderHistory(data.history || []);
+    } catch(e) {}
+  }
+
+  function renderHistory(list) {
+    const c = document.getElementById('historyTable');
+    if (!list.length) { c.innerHTML = '<div class="empty-state">暂无记录</div>'; return; }
+    let h = '<table><tr><th>时间</th><th>URL</th><th>状态</th><th>耗时</th></tr>';
+    [...list].reverse().forEach(r => {
+      const sc = r.status === 'success' ? 'success' : 'failed';
+      const sl = r.status === 'success' ? '成功' : '失败';
+      const d = r.duration ? (r.duration/1000).toFixed(1)+'s' : '-';
+      const t = r.startTime ? new Date(r.startTime * 1000).toLocaleString() : '-';
+      h += `<tr><td class="mono">${t}</td><td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--blue)">${esc(r.url)}</td><td><span class="badge ${sc}">${sl}</span></td><td class="mono">${d}</td></tr>`;
+    });
+    c.innerHTML = h + '</table>';
+  }
+
+  function copyToken() {
+    navigator.clipboard.writeText(userKey).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = '已复制';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    });
+  }
+
+  function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  document.getElementById('userKey').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
+</script>
+</body>
+</html>

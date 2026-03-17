@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCrawl</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2333;
+    --border: #30363d; --text: #e6edf3; --text2: #8b949e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff; --yellow: #d29922;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif; font-size: 14px;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header h1 span { color: var(--blue); }
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;
+  }
+  .status-badge.connected { background: rgba(63,185,80,0.15); color: var(--green); }
+  .status-badge.disconnected { background: rgba(248,81,73,0.15); color: var(--red); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-badge.connected .status-dot { background: var(--green); animation: pulse 2s infinite; }
+  .status-badge.disconnected .status-dot { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; padding: 20px 24px;
+  }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+  }
+  .stat-card .label { color: var(--text2); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .stat-card:nth-child(1) .value { color: var(--blue); }
+  .stat-card:nth-child(2) .value { color: var(--yellow); }
+  .stat-card:nth-child(3) .value { color: var(--green); }
+  .stat-card:nth-child(4) .value { color: var(--red); }
+
+  .api-info {
+    margin: 0 24px 16px; padding: 16px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .api-info h3 { font-size: 13px; color: var(--text2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+  .api-line {
+    font-family: 'Cascadia Code','Fira Code',monospace; font-size: 12px;
+    background: var(--bg); padding: 8px 12px; border-radius: 6px;
+    margin-bottom: 6px; color: var(--text); word-break: break-all;
+  }
+  .api-line .method { color: var(--green); font-weight: 600; }
+  .api-line .path { color: var(--blue); }
+  .api-line .comment { color: var(--text2); }
+  .api-line .auth { color: var(--yellow); font-size: 11px; }
+
+  .section {
+    margin: 0 24px 16px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .section-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--text2);
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 16px; font-size: 12px;
+    color: var(--text2); border-bottom: 1px solid var(--border);
+    font-weight: 500; text-transform: uppercase;
+  }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: var(--surface2); }
+  .task-id { font-family: monospace; font-size: 12px; color: var(--text2); }
+  .task-url {
+    font-family: monospace; font-size: 12px; color: var(--blue);
+    max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;
+  }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  }
+  .badge.success { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.failed { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge.running { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .duration { color: var(--text2); font-size: 12px; font-family: monospace; }
+  .empty-state { padding: 40px; text-align: center; color: var(--text2); font-size: 13px; }
+  .dl-link { color: var(--green); text-decoration: none; font-size: 11px; }
+  .dl-link:hover { text-decoration: underline; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Open</span>Crawl</h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/user" style="color:var(--blue);text-decoration:none;font-size:13px">用户面板</a>
+    <a href="/admin" style="color:var(--yellow);text-decoration:none;font-size:13px">管理后台</a>
+    <div id="statusBadge" class="status-badge disconnected">
+      <div class="status-dot"></div>
+      <span id="statusText">加载中...</span>
+    </div>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Workers</div><div class="value" id="statWorkers">0</div></div>
+  <div class="stat-card"><div class="label">进行中</div><div class="value" id="statActive">0</div></div>
+  <div class="stat-card"><div class="label">已完成</div><div class="value" id="statCompleted">0</div></div>
+  <div class="stat-card"><div class="label">已失败</div><div class="value" id="statFailed">0</div></div>
+</div>
+
+<div class="api-info">
+  <h3>API 接口</h3>
+  <div class="api-line"><span class="method">POST</span> <span class="path">/api/crawl</span> <span class="comment">{"url": "...", "selector": "可选"}</span> <span class="auth">Authorization: Bearer ak_xxx</span></div>
+  <div class="api-line"><span class="method">GET </span> <span class="path">/api/crawl?url=</span><span class="comment">https://...&key=ak_xxx</span></div>
+  <div class="api-line"><span class="method">GET </span> <span class="path">/api/balance</span> <span class="auth">查询积分余额</span></div>
+  <div class="api-line"><span class="method">GET </span> <span class="path">/api/status</span> <span class="comment">公开</span></div>
+</div>
+
+<div class="section">
+  <div class="section-header">Workers</div>
+  <div id="workerList"><div class="empty-state">暂无</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">任务历史</div>
+  <div id="taskHistory" style="max-height:400px;overflow-y:auto"><div class="empty-state">暂无</div></div>
+</div>
+
+<script>
+  function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function updateDashboard(data) {
+    // Workers
+    document.getElementById('statWorkers').textContent = data.workers || 0;
+    document.getElementById('statActive').textContent = data.activeTasks || 0;
+    document.getElementById('statCompleted').textContent = data.totalCompleted || 0;
+    document.getElementById('statFailed').textContent = data.totalFailed || 0;
+
+    const badge = document.getElementById('statusBadge');
+    const text = document.getElementById('statusText');
+    if (data.workers > 0) {
+      badge.className = 'status-badge connected';
+      text.textContent = data.workers + ' Worker' + (data.workers > 1 ? 's' : '');
+    } else {
+      badge.className = 'status-badge disconnected';
+      text.textContent = '无 Worker';
+    }
+
+    // Worker 列表
+    const wc = document.getElementById('workerList');
+    if (data.workerList && data.workerList.length > 0) {
+      let h = '<table><tr><th>ID</th><th>完成</th><th>失败</th><th>在线</th></tr>';
+      data.workerList.forEach(w => {
+        const uptime = w.uptime > 3600 ? (w.uptime/3600).toFixed(1)+'h' : w.uptime > 60 ? Math.floor(w.uptime/60)+'m' : w.uptime+'s';
+        h += `<tr><td class="task-id">${esc(w.id)}</td><td style="color:var(--green)">${w.completed}</td><td style="color:var(--red)">${w.failed}</td><td class="duration">${uptime}</td></tr>`;
+      });
+      wc.innerHTML = h + '</table>';
+    } else {
+      wc.innerHTML = '<div class="empty-state">暂无 Worker 连接</div>';
+    }
+
+    // 任务历史
+    const tc = document.getElementById('taskHistory');
+    if (data.history && data.history.length > 0) {
+      let h = '<table><tr><th>ID</th><th>URL</th><th>状态</th><th>耗时</th><th>R2</th></tr>';
+      [...data.history].reverse().forEach(r => {
+        const sc = r.status === 'success' ? 'success' : 'failed';
+        const sl = r.status === 'success' ? '成功' : '失败';
+        const d = r.duration ? (r.duration/1000).toFixed(1)+'s' : '-';
+        const r2 = r.r2Key ? `<span class="task-id">${esc(r.r2Key.slice(-12))}</span>` : '-';
+        h += `<tr><td class="task-id">${r.taskId.slice(0,8)}</td><td><span class="task-url">${esc(r.url)}</span></td><td><span class="badge ${sc}">${sl}</span></td><td class="duration">${d}</td><td>${r2}</td></tr>`;
+      });
+      tc.innerHTML = h + '</table>';
+    }
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/status');
+      updateDashboard(await res.json());
+    } catch (e) {}
+  }
+  setInterval(poll, 3000);
+  poll();
+</script>
+</body>
+</html>
