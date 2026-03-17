@@ -122,12 +122,35 @@ def authenticate(request: Request):
 tasks: dict = {}
 task_history: list = []
 
-# websocket -> {id, api_key, join_time, completed, failed, domains}
+# websocket -> {id, api_key, join_time, completed, failed, domains, last_pong}
 workers: dict = {}
 
 
 # ============ FastAPI ============
 app = FastAPI(title="OpenCrawl")
+
+
+# ============ 心跳检测：30秒无响应踢掉 ============
+async def heartbeat_checker():
+    while True:
+        await asyncio.sleep(15)
+        now = time.time()
+        dead = []
+        for ws, info in list(workers.items()):
+            # 超过 30 秒没有 pong
+            if now - info.get("last_pong", info["join_time"]) > 30:
+                dead.append((ws, info))
+
+        for ws, info in dead:
+            print(f"[OpenCrawl] Worker {info['id']} 心跳超时，断开")
+            workers.pop(ws, None)
+            try:
+                await ws.close()
+            except Exception:
+                pass
+
+        if dead:
+            await broadcast_status()
 
 app.add_middleware(
     CORSMiddleware,
@@ -149,6 +172,7 @@ async def websocket_endpoint(ws: WebSocket):
         "completed": 0,
         "failed": 0,
         "domains": {},
+        "last_pong": time.time(),
     }
     print(f"[OpenCrawl] Worker {worker_id} connected, total: {len(workers)}")
     await broadcast_status()
@@ -212,6 +236,8 @@ async def websocket_endpoint(ws: WebSocket):
                 await broadcast_status()
 
             elif msg.get("type") == "heartbeat":
+                if ws in workers:
+                    workers[ws]["last_pong"] = time.time()
                 await ws.send_text(json.dumps({"type": "pong"}))
 
     except WebSocketDisconnect:
@@ -485,6 +511,7 @@ async def startup():
     print("[OpenCrawl]   POST /api/admin/create-key  创建 API Key")
     print("[OpenCrawl]   POST /api/admin/recharge    充值积分")
     setup_lifecycle()
+    asyncio.create_task(heartbeat_checker())
 
 
 if __name__ == "__main__":
