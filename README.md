@@ -77,20 +77,54 @@ OpenCrawl/
 
 ## 部署
 
-### 服务端
+### 1. 创建 Cloudflare R2 Bucket
+
+1. 注册 [Cloudflare](https://dash.cloudflare.com/) 账号
+2. 进入 **R2 Object Storage** → **Create bucket**，名称填 `opencrawl`（或自定义）
+3. 进入 **R2** → **Manage R2 API Tokens** → **Create API Token**
+   - Permissions: `Object Read & Write`
+   - 创建后记下以下三个值：
+
+| 环境变量 | 说明 | 获取位置 |
+|---------|------|---------|
+| `R2_ACCOUNT_ID` | Cloudflare Account ID | Dashboard 右侧栏，32 位字符串 |
+| `R2_ACCESS_KEY_ID` | R2 API Token 的 Access Key | 创建 API Token 后显示 |
+| `R2_SECRET_ACCESS_KEY` | R2 API Token 的 Secret Key | 创建 API Token 后显示（仅显示一次） |
+
+### 2. 部署服务端
 
 1. Python 3.10+ 环境
 2. 安装依赖：`pip install -r requirements.txt`
-3. 配置 `.env`：
+3. 复制并编辑环境变量：
+   ```bash
+   cp .env.example .env
    ```
-   R2_ACCOUNT_ID=your_account_id
-   R2_ACCESS_KEY_ID=your_access_key
-   R2_SECRET_ACCESS_KEY=your_secret_key
-   R2_BUCKET=OpenCrawl
+   编辑 `.env`：
+   ```bash
+   # Cloudflare R2（必填）
+   R2_ACCOUNT_ID=你的Account_ID          # Cloudflare Dashboard 右侧栏
+   R2_ACCESS_KEY_ID=你的Access_Key_ID    # R2 API Token 创建后获得
+   R2_SECRET_ACCESS_KEY=你的Secret_Key   # R2 API Token 创建后获得（仅显示一次）
+   R2_BUCKET=opencrawl                   # 你创建的 bucket 名称
+
+   # 服务配置
    PORT=9877
-   ADMIN_KEY=your_admin_key
+
+   # 管理员密钥（自定义，用于创建用户和充值积分）
+   ADMIN_KEY=your_admin_secret_key
    ```
-4. 启动：`uvicorn server:app --host 0.0.0.0 --port 9877`
+4. 启动：
+   ```bash
+   uvicorn server:app --host 0.0.0.0 --port 9877
+   ```
+5. 首次启动后，创建第一个用户：
+   ```bash
+   curl -X POST http://localhost:9877/api/admin/create-key \
+     -H "Authorization: Bearer your_admin_secret_key" \
+     -H "Content-Type: application/json" \
+     -d '{"name": "我的账号", "credits": 100}'
+   ```
+   返回的 `apiKey`（如 `ak_xxx`）就是你的 API Key
 
 ### Chrome 扩展 (Worker)
 
