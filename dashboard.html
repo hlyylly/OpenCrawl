@@ -120,6 +120,28 @@
   <div class="stat-card"><div class="label">已失败</div><div class="value" id="statFailed">0</div></div>
 </div>
 
+<!-- 注册区域 -->
+<div id="registerBox" style="margin:0 24px 16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">免费注册，立即获得 100 积分</div>
+      <div style="font-size:12px;color:var(--text2)">注册后即可调用 API 爬取任意网页</div>
+    </div>
+    <input id="regName" type="text" placeholder="输入你的名称" style="padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;width:180px">
+    <button id="regBtn" onclick="doRegister()" style="padding:8px 20px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">一键注册</button>
+  </div>
+  <div id="regResult" style="margin-top:12px;display:none">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;margin-bottom:6px">你的 API Key（请妥善保管）</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <code id="regKey" style="flex:1;font-size:14px;color:var(--green);word-break:break-all"></code>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('regKey').textContent).then(()=>{this.textContent='已复制';setTimeout(()=>this.textContent='复制',1500)})" style="padding:5px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:11px;white-space:nowrap">复制</button>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text2)">积分: <span style="color:var(--green);font-weight:700" id="regCredits"></span> | <a href="/user" style="color:var(--blue);text-decoration:none">前往用户面板 →</a></div>
+    </div>
+  </div>
+</div>
+
 <div class="api-info">
   <h3>API 接口</h3>
   <div class="api-line"><span class="method">POST</span> <span class="path">/api/crawl</span> <span class="comment">{"url": "...", "selector": "可选"}</span> <span class="auth">Authorization: Bearer ak_xxx</span></div>
@@ -140,6 +162,31 @@
 
 <script>
   function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  async function doRegister() {
+    const name = document.getElementById('regName').value.trim();
+    if (!name) { alert('请输入名称'); return; }
+    const btn = document.getElementById('regBtn');
+    btn.disabled = true; btn.textContent = '注册中...';
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      document.getElementById('regKey').textContent = data.apiKey;
+      document.getElementById('regCredits').textContent = data.credits;
+      document.getElementById('regResult').style.display = 'block';
+      btn.textContent = '注册成功';
+      btn.style.background = 'var(--text2)';
+    } catch(e) {
+      alert('注册失败: ' + e.message);
+      btn.disabled = false; btn.textContent = '一键注册';
+    }
+  }
+  document.getElementById('regName').addEventListener('keydown', e => { if(e.key==='Enter') doRegister(); });
 
   function updateDashboard(data) {
     // Workers

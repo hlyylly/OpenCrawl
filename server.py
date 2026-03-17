@@ -22,6 +22,52 @@ TASK_TIMEOUT = 60
 MAX_HISTORY = 500
 ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_OpenCrawl")
 CREDITS_PER_TASK = 1
+REGISTER_CREDITS = 100  # 注册赠送积分
+
+# ============ URL 黑名单 ============
+BLOCKED_HOSTS = {
+    "localhost", "127.0.0.1", "0.0.0.0", "::1",
+    "10.", "172.16.", "172.17.", "172.18.", "172.19.",
+    "172.20.", "172.21.", "172.22.", "172.23.",
+    "172.24.", "172.25.", "172.26.", "172.27.",
+    "172.28.", "172.29.", "172.30.", "172.31.",
+    "192.168.",
+    "metadata.google.internal",
+    "169.254.169.254",  # 云厂商 metadata
+}
+
+BLOCKED_SCHEMES = {"file", "ftp", "javascript", "data"}
+
+
+def is_url_blocked(url: str) -> str | None:
+    """检查 URL 是否被屏蔽，返回原因或 None"""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "无效的 URL"
+
+    if parsed.scheme.lower() in BLOCKED_SCHEMES:
+        return f"不允许的协议: {parsed.scheme}"
+
+    if not parsed.hostname:
+        return "无效的 URL"
+
+    host = parsed.hostname.lower()
+
+    # 精确匹配
+    if host in BLOCKED_HOSTS:
+        return f"禁止访问: {host}"
+
+    # 前缀匹配（内网 IP 段）
+    for prefix in BLOCKED_HOSTS:
+        if prefix.endswith(".") and host.startswith(prefix):
+            return f"禁止访问内网地址: {host}"
+
+    # 端口检查：常见危险端口
+    if parsed.port and parsed.port in {22, 3306, 5432, 6379, 27017, 11211}:
+        return f"禁止访问端口: {parsed.port}"
+
+    return None
 
 # ============ Cloudflare R2 ============
 r2 = boto3.client(
@@ -292,6 +338,11 @@ async def broadcast_status():
 
 
 async def crawl(url: str, selector: str | None, api_key: str):
+    # URL 安全检查
+    blocked = is_url_blocked(url)
+    if blocked:
+        raise HTTPException(403, detail=blocked)
+
     if not workers:
         raise HTTPException(503, detail="没有可用的 Worker")
 
@@ -442,6 +493,30 @@ async def user_history(request: Request):
     # 返回该用户相关的任务历史
     my_history = [h for h in task_history if h.get("_apiKey") == key]
     return {"history": my_history[-50:]}
+
+
+# ============ 公开注册 ============
+@app.post("/api/register")
+async def api_register(request: Request):
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        return JSONResponse({"success": False, "error": "请输入名称"}, 400)
+    if len(name) > 32:
+        return JSONResponse({"success": False, "error": "名称最长 32 字符"}, 400)
+
+    new_key = "ak_" + uuid.uuid4().hex[:24]
+    users = load_users()
+    users[new_key] = {
+        "name": name,
+        "credits": REGISTER_CREDITS,
+        "created": time.strftime("%Y-%m-%d"),
+        "totalUsed": 0,
+        "totalEarned": 0,
+    }
+    save_users(users)
+    print(f"[OpenCrawl] 新用户注册: {name} -> {new_key}")
+    return {"success": True, "apiKey": new_key, "credits": REGISTER_CREDITS}
 
 
 @app.post("/api/admin/create-key")
