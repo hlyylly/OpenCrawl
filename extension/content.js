@@ -118,7 +118,7 @@ function parseDDG() {
 
 function parseBing() {
   const results = [];
-  document.querySelectorAll("#b_results > li.b_algo, #b_results > li.b_ans").forEach((el) => {
+  document.querySelectorAll("#b_results .b_algo, #b_results .b_ans").forEach((el) => {
     const a = el.querySelector("h2 a, h3 a");
     if (!a) return;
 
@@ -131,8 +131,15 @@ function parseBing() {
     } catch (e) {}
 
     // 多种 snippet 位置
-    const snippet = el.querySelector(".b_caption p, .b_algoSlug, .b_paractl, .b_dList p, .b_lineclamp2, .b_mText p");
-    const desc = snippet?.innerText?.trim() || "";
+    const snippet = el.querySelector(".b_caption p, .b_algoSlug, .b_paractl, .b_dList p, .b_lineclamp2, .b_mText p, .b_caption .b_factrow, p");
+    let desc = snippet?.innerText?.trim() || "";
+    // 兜底：取元素内除标题外最长的文本
+    if (!desc) {
+      el.querySelectorAll("span, p, div").forEach(s => {
+        const t = s.innerText?.trim();
+        if (t && t.length > desc.length && t !== (a.innerText?.trim())) desc = t;
+      });
+    }
 
     // 跳过无标题或广告
     const title = a.innerText?.trim() || "";
