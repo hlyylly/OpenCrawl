@@ -594,84 +594,163 @@ async def api_crawl_get(request: Request, url: str = None, selector: str = None,
 
 
 # ============ Search API (走 Worker) ============
+SEARCH_ENGINES = {
+    "duckduckgo": "https://html.duckduckgo.com/html/?q={}",
+    "bing": "https://www.bing.com/search?q={}&setlang=en",
+    "google": "https://www.google.com/search?q={}",
+    "baidu": "https://www.baidu.com/s?wd={}",
+}
+
+
 def _build_search_url(q: str, engine: str) -> str:
-    """构造搜索引擎 URL"""
     from urllib.parse import quote_plus
-    encoded = quote_plus(q)
-    if engine == "bing":
-        return f"https://www.bing.com/search?q={encoded}&setlang=en"
+    template = SEARCH_ENGINES.get(engine, SEARCH_ENGINES["duckduckgo"])
+    return template.format(quote_plus(q))
+
+
+async def _fetch_search_results(r2_key: str) -> list:
+    """从 R2 下载 Worker 返回的搜索结果"""
+    try:
+        obj = r2.get_object(Bucket=R2_BUCKET, Key=r2_key)
+        raw = json.loads(obj["Body"].read())
+        data_str = raw.get("data", "")
+        return json.loads(data_str) if data_str.startswith("[") else []
+    except Exception:
+        return []
+
+
+def _merge_results(all_results: list[list], sources: list[str]) -> list:
+    """合并多引擎结果，去重，保留来源"""
+    seen_urls = set()
+    merged = []
+    for results, source in zip(all_results, sources):
+        for r in results:
+            url = r.get("url", "")
+            # 归一化 URL 去重
+            norm = url.rstrip("/").lower().split("?")[0]
+            if norm in seen_urls or not url:
+                continue
+            seen_urls.add(norm)
+            r["source"] = source
+            merged.append(r)
+    return merged
+
+
+async def _do_search(q: str, mode: str, key: str):
+    """执行搜索，lite=单引擎, full=多引擎并行"""
+    if mode == "full":
+        # 并行搜索 DDG + Bing + Google
+        engines = ["duckduckgo", "bing", "google"]
+        tasks_list = []
+        for eng in engines:
+            url = _build_search_url(q, eng)
+            tasks_list.append(crawl(url, "__search__", key, "lite"))
+
+        results_raw = await asyncio.gather(*tasks_list, return_exceptions=True)
+
+        all_results = []
+        for r in results_raw:
+            if isinstance(r, Exception) or isinstance(r, BaseException):
+                all_results.append([])
+            else:
+                all_results.append(await _fetch_search_results(r["r2Key"]))
+
+        merged = _merge_results(all_results, engines)
+        return merged, engines
     else:
-        return f"https://html.duckduckgo.com/html/?q={encoded}"
+        # lite: 单引擎
+        url = _build_search_url(q, "duckduckgo")
+        result = await crawl(url, "__search__", key, "lite")
+        search_results = await _fetch_search_results(result["r2Key"])
+        return search_results, ["duckduckgo"]
 
 
 @app.post("/api/search")
 async def api_search_post(request: Request):
     key, user = authenticate(request)
-    if user["credits"] < CREDITS_LITE:
-        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
-
     body = await request.json()
     q = body.get("q", "").strip()
     if not q:
         return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
 
-    engine = body.get("engine", "duckduckgo")
-    search_url = _build_search_url(q, engine)
+    mode = body.get("mode", "lite")  # lite=DDG单引擎, full=DDG+Bing+Google并行
+    cost = CREDITS_PER_TASK if mode == "full" else CREDITS_LITE
+    if user["credits"] < cost:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
 
-    # 用 lite 模式走 Worker 抓搜索页面，selector=__search__ 触发 content.js 搜索解析
-    result = await crawl(search_url, "__search__", key, "lite")
+    results, engines = await _do_search(q, mode, key)
 
-    # 从 R2 下载并解析 Worker 返回的结构化数据
-    try:
-        obj = r2.get_object(Bucket=R2_BUCKET, Key=result["r2Key"])
-        raw = json.loads(obj["Body"].read())
-        data_str = raw.get("data", "")
-        # content.js 会返回 JSON 字符串（搜索结果）
-        search_results = json.loads(data_str) if data_str.startswith("[") else []
-    except Exception:
-        search_results = []
+    # 扣积分（crawl 内部已按 lite 扣了，这里补差额）
+    # lite search: crawl 扣了 0.1，刚好
+    # full search: crawl 扣了 0.1*3=0.3，需要补 0.7
+    if mode == "full":
+        users = load_users()
+        if key in users:
+            users[key]["credits"] -= (CREDITS_PER_TASK - CREDITS_LITE * 3)
+            save_users(users)
 
-    # Brave Search 兼容格式
+    # 合并结果上传到 R2
+    task_id = uuid.uuid4().hex
+    r2_key = f"tasks/{task_id}.json"
+    payload = json.dumps({
+        "query": q, "mode": mode, "engines": engines,
+        "results": results, "count": len(results), "timestamp": time.time(),
+    }, ensure_ascii=False).encode()
+    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
+    download_url = get_download_url(r2_key)
+
     return {
         "success": True,
         "query": q,
         "type": "search",
+        "mode": mode,
+        "engines": engines,
         "web": {
-            "results": search_results[:20],
+            "results": results[:30],
         },
-        "r2Key": result["r2Key"],
-        "downloadUrl": result["downloadUrl"],
+        "r2Key": r2_key,
+        "downloadUrl": download_url,
     }
 
 
 @app.get("/api/search")
-async def api_search_get(request: Request, q: str = None, engine: str = "duckduckgo"):
+async def api_search_get(request: Request, q: str = None, mode: str = "lite"):
     key, user = authenticate(request)
-    if user["credits"] < CREDITS_LITE:
-        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
     if not q:
         return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
 
-    search_url = _build_search_url(q, engine)
-    result = await crawl(search_url, "__search__", key, "lite")
+    cost = CREDITS_PER_TASK if mode == "full" else CREDITS_LITE
+    if user["credits"] < cost:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
 
-    try:
-        obj = r2.get_object(Bucket=R2_BUCKET, Key=result["r2Key"])
-        raw = json.loads(obj["Body"].read())
-        data_str = raw.get("data", "")
-        search_results = json.loads(data_str) if data_str.startswith("[") else []
-    except Exception:
-        search_results = []
+    results, engines = await _do_search(q, mode, key)
+
+    if mode == "full":
+        users = load_users()
+        if key in users:
+            users[key]["credits"] -= (CREDITS_PER_TASK - CREDITS_LITE * 3)
+            save_users(users)
+
+    task_id = uuid.uuid4().hex
+    r2_key = f"tasks/{task_id}.json"
+    payload = json.dumps({
+        "query": q, "mode": mode, "engines": engines,
+        "results": results, "count": len(results), "timestamp": time.time(),
+    }, ensure_ascii=False).encode()
+    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
+    download_url = get_download_url(r2_key)
 
     return {
         "success": True,
         "query": q,
         "type": "search",
+        "mode": mode,
+        "engines": engines,
         "web": {
-            "results": search_results[:20],
+            "results": results[:30],
         },
-        "r2Key": result["r2Key"],
-        "downloadUrl": result["downloadUrl"],
+        "r2Key": r2_key,
+        "downloadUrl": download_url,
     }
 
 
