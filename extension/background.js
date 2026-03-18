@@ -1,7 +1,7 @@
 const TASK_TIMEOUT = 45000;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
 
-let wsUrl = "ws://localhost:9877/ws";
+let wsUrl = "";
 let apiKey = null;
 let ws = null;
 let reconnectAttempt = 0;
@@ -16,7 +16,7 @@ let incognitoWindowId = null; // 复用的无痕窗口
 // ============ 配置管理 ============
 async function loadConfig() {
   const cfg = await chrome.storage.local.get(["wsUrl", "apiKey"]);
-  if (cfg.wsUrl) wsUrl = cfg.wsUrl;
+  wsUrl = cfg.wsUrl || "ws://localhost:9877/ws";
   if (cfg.apiKey) apiKey = cfg.apiKey;
 
   // 检查是否允许无痕模式
@@ -59,8 +59,14 @@ async function getIncognitoWindow() {
 
 // ============ WebSocket ============
 function connect() {
+  // 配置未加载完，等一下
+  if (!wsUrl) {
+    setTimeout(connect, 500);
+    return;
+  }
+
   // 验证 URL 格式
-  if (!wsUrl || (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://"))) {
+  if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) {
     addLog("error", `无效的 WebSocket 地址: ${wsUrl}`);
     scheduleReconnect();
     return;
