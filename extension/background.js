@@ -7,6 +7,7 @@ let ws = null;
 let reconnectAttempt = 0;
 let connected = false;
 let incognitoAllowed = false;
+let workerId = null;
 
 // taskId -> { tabId, url, selector, uploadUrl, timer }
 const activeTasks = new Map();
@@ -15,9 +16,17 @@ let incognitoWindowId = null; // 复用的无痕窗口
 
 // ============ 配置管理 ============
 async function loadConfig() {
-  const cfg = await chrome.storage.local.get(["wsUrl", "apiKey"]);
+  const cfg = await chrome.storage.local.get(["wsUrl", "apiKey", "workerId"]);
   wsUrl = cfg.wsUrl || "ws://localhost:9877/ws";
   if (cfg.apiKey) apiKey = cfg.apiKey;
+
+  // 持久化 Worker ID，Service Worker 重启后保持同一个 ID
+  if (!cfg.workerId) {
+    const id = "w_" + Math.random().toString(36).slice(2, 10);
+    await chrome.storage.local.set({ workerId: id });
+    cfg.workerId = id;
+  }
+  workerId = cfg.workerId;
 
   // 检查是否允许无痕模式
   try {
@@ -38,7 +47,7 @@ async function saveConfig(newCfg) {
 let _incognitoPromise = null;
 
 async function getIncognitoWindow() {
-  // 检查已有窗口是否还存在
+  // 1. 检查内存中的窗口 ID
   if (incognitoWindowId) {
     try {
       await chrome.windows.get(incognitoWindowId);
@@ -48,7 +57,17 @@ async function getIncognitoWindow() {
     }
   }
 
-  // 并发锁：多个任务同时请求时只创建一个窗口
+  // 2. Service Worker 重启后内存丢失，查找已有的无痕窗口复用
+  try {
+    const allWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const existing = allWindows.find(w => w.incognito);
+    if (existing) {
+      incognitoWindowId = existing.id;
+      return incognitoWindowId;
+    }
+  } catch {}
+
+  // 3. 并发锁：多个任务同时请求时只创建一个窗口
   if (_incognitoPromise) {
     return _incognitoPromise;
   }
@@ -101,10 +120,8 @@ function connect() {
       addLog("warn", "未启用无痕模式权限，爬取将携带你的 Cookie（建议在扩展设置中开启「在无痕模式下启用」）");
     }
 
-    // 注册 Worker（发送 API Key 以获取积分）
-    if (apiKey) {
-      ws.send(JSON.stringify({ type: "register", apiKey }));
-    }
+    // 注册 Worker（发送 ID + API Key）
+    ws.send(JSON.stringify({ type: "register", workerId, apiKey: apiKey || null }));
     broadcastState();
   };
 

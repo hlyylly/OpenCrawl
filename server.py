@@ -406,7 +406,19 @@ async def websocket_endpoint(ws: WebSocket):
 
             if msg.get("type") == "register":
                 workers[ws]["api_key"] = msg.get("apiKey")
-                print(f"[OpenCrawl] Worker {worker_id} registered, apiKey: {'yes' if msg.get('apiKey') else 'none'}")
+                client_worker_id = msg.get("workerId")
+                if client_worker_id:
+                    workers[ws]["client_id"] = client_worker_id
+                    # 踢掉同 ID 的旧连接（Service Worker 重启产生的幽灵）
+                    for old_ws, old_info in list(workers.items()):
+                        if old_ws is not ws and old_info.get("client_id") == client_worker_id:
+                            print(f"[OpenCrawl] 踢掉幽灵 Worker {old_info['id']} (同 client_id: {client_worker_id})")
+                            workers.pop(old_ws, None)
+                            try:
+                                asyncio.create_task(old_ws.close())
+                            except Exception:
+                                pass
+                print(f"[OpenCrawl] Worker {worker_id} registered, clientId: {client_worker_id}, apiKey: {'yes' if msg.get('apiKey') else 'none'}")
 
             elif msg.get("type") == "taskComplete" and msg.get("taskId") in tasks:
                 task_id = msg["taskId"]
