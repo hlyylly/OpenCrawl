@@ -686,7 +686,7 @@ def _merge_results(all_results: list[list], sources: list[str]) -> list:
 async def _do_search(q: str, mode: str, key: str):
     """执行搜索，lite=单引擎, full=多引擎并行"""
     if mode == "full":
-        engines = ["duckduckgo", "bing", "baidu"]
+        engines = ["duckduckgo", "bing", "google", "baidu"]
         # 并行下发所有搜索任务
         coros = []
         for eng in engines:

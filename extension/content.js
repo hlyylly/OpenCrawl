@@ -145,26 +145,49 @@ function parseBing() {
 
 function parseGoogle() {
   const results = [];
-  // Google 搜索结果多种容器选择器
-  const containers = document.querySelectorAll("#search .g, #rso .g, [data-hveid] .g, .MjjYud .g");
-  containers.forEach((el) => {
-    const a = el.querySelector("a[href]");
-    const h3 = el.querySelector("h3");
-    if (!a || !h3) return;
+  const seen = new Set();
+
+  // 策略：找所有 h3，往上找包含链接的祖先
+  document.querySelectorAll("#rso h3, #search h3, .MjjYud h3").forEach((h3) => {
+    const title = h3.innerText?.trim();
+    if (!title || seen.has(title)) return;
+
+    // 向上找最近的 <a> 祖先或兄弟
+    let a = h3.closest("a") || h3.parentElement?.querySelector("a[href]");
+    if (!a) {
+      // 再向上一层找
+      const container = h3.closest("[data-hveid]") || h3.closest(".MjjYud") || h3.parentElement?.parentElement;
+      if (container) a = container.querySelector("a[href]");
+    }
+    if (!a) return;
 
     const url = a.href || "";
-    if (!url.startsWith("http") || url.includes("google.com/search")) return;
+    if (!url.startsWith("http") || url.includes("google.com/search") || url.includes("google.com/url")) return;
 
-    // snippet 位置经常变
-    const snippet = el.querySelector("[data-sncf], .VwiC3b, .IsZvec, .lEBKkf, span.st, .s3v9rd")
-      || el.querySelector("div[data-content-feature] span")
-      || el.querySelector("div > span");
+    // snippet: 在 h3 的同级或父容器中找描述文本
+    let desc = "";
+    const container = h3.closest("[data-hveid]") || h3.closest(".MjjYud") || h3.parentElement?.parentElement?.parentElement;
+    if (container) {
+      // 找非标题的文本块
+      const spans = container.querySelectorAll("[data-sncf], .VwiC3b, .IsZvec, .lEBKkf, [style*='-webkit-line-clamp']");
+      for (const s of spans) {
+        const t = s.innerText?.trim();
+        if (t && t !== title && t.length > 20) { desc = t; break; }
+      }
+      if (!desc) {
+        // 兜底：找所有 span 里最长的文本
+        const allSpans = container.querySelectorAll("span");
+        let longest = "";
+        allSpans.forEach(s => {
+          const t = s.innerText?.trim();
+          if (t && t !== title && t.length > longest.length && t.length > 20) longest = t;
+        });
+        desc = longest;
+      }
+    }
 
-    results.push({
-      title: h3.innerText?.trim() || "",
-      url: url,
-      description: snippet?.innerText?.trim() || "",
-    });
+    seen.add(title);
+    results.push({ title, url, description: desc });
   });
   return results;
 }
