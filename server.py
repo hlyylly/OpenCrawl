@@ -392,6 +392,7 @@ async def websocket_endpoint(ws: WebSocket):
         "join_time": time.time(),
         "completed": 0,
         "failed": 0,
+        "active_tasks": 0,
         "domains": {},
         "last_pong": time.time(),
     }
@@ -411,6 +412,8 @@ async def websocket_endpoint(ws: WebSocket):
                 task_id = msg["taskId"]
                 task = tasks.pop(task_id)
                 worker = workers.get(ws, {})
+                if worker:
+                    worker["active_tasks"] = max(0, worker.get("active_tasks", 0) - 1)
                 duration = time.time() - task["start_time"]
 
                 entry = {
@@ -473,17 +476,24 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 def select_worker(target_domain: str):
+    """选择最优 Worker：优先活跃任务少的，同等时按域名负载均衡"""
     best = None
-    best_count = float("inf")
+    best_score = float("inf")
     for ws, info in workers.items():
-        count = info["domains"].get(target_domain, 0)
-        if count < best_count:
-            best_count = count
+        active = info.get("active_tasks", 0)
+        domain_count = info["domains"].get(target_domain, 0)
+        score = active * 100 + domain_count
+        if score < best_score:
+            best_score = score
             best = ws
     return best
 
 
 async def dispatch(ws: WebSocket, task_id, url, selector, upload_url, mode="full"):
+    worker = workers.get(ws)
+    if worker:
+        worker["active_tasks"] = worker.get("active_tasks", 0) + 1
+
     await ws.send_text(json.dumps({
         "type": "task", "taskId": task_id,
         "url": url, "selector": selector, "uploadUrl": upload_url, "mode": mode,
