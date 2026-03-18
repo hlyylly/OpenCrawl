@@ -650,19 +650,27 @@ def _merge_results(all_results: list[list], sources: list[str]) -> list:
 async def _do_search(q: str, mode: str, key: str):
     """执行搜索，lite=单引擎, full=多引擎并行"""
     if mode == "full":
-        # 并行搜索三引擎（Google 反爬太强，暂不使用）
         engines = ["duckduckgo", "bing", "baidu"]
-        tasks_list = []
+        # 并行下发所有搜索任务
+        coros = []
         for eng in engines:
             url = _build_search_url(q, eng)
-            tasks_list.append(crawl(url, "__search__", key, "full"))
+            coros.append(crawl(url, "__search__", key, "full"))
 
-        results_raw = await asyncio.gather(*tasks_list, return_exceptions=True)
+        # 等所有完成，总超时 45 秒
+        done = {}
+        try:
+            results_raw = await asyncio.wait_for(
+                asyncio.gather(*coros, return_exceptions=True),
+                timeout=45
+            )
+        except asyncio.TimeoutError:
+            results_raw = [TimeoutError("总超时")] * len(engines)
 
         all_results = []
         for i, r in enumerate(results_raw):
-            if isinstance(r, Exception) or isinstance(r, BaseException):
-                print(f"[OpenCrawl] Search {engines[i]} failed: {r}")
+            if isinstance(r, (Exception, BaseException)):
+                print(f"[OpenCrawl] Search {engines[i]} failed: {type(r).__name__}: {r}")
                 all_results.append([])
             else:
                 items = await _fetch_search_results(r["r2Key"])
