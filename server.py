@@ -6,6 +6,9 @@ import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 
+import re
+import random
+import httpx
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
@@ -22,7 +25,18 @@ TASK_TIMEOUT = 60
 MAX_HISTORY = 500
 ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_OpenCrawl")
 CREDITS_PER_TASK = 1
+CREDITS_LITE = 0.1  # lite 模式积分
 REGISTER_CREDITS = 100  # 注册赠送积分
+
+# ============ UA 池 ============
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+]
 
 # ============ URL 黑名单 ============
 BLOCKED_HOSTS = {
@@ -123,6 +137,166 @@ def setup_lifecycle():
         print("[OpenCrawl] R2 lifecycle 规则已设置 (tasks/ 1天过期)")
     except Exception as e:
         print(f"[OpenCrawl] R2 lifecycle 设置失败: {e}")
+
+
+# ============ Lite 抓取引擎 ============
+http_client = httpx.AsyncClient(timeout=15, follow_redirects=True)
+
+
+def _random_headers():
+    ua = random.choice(USER_AGENTS)
+    return {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+        "Accept-Encoding": "gzip, deflate",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
+def _extract_text(html: str, selector: str | None = None) -> str:
+    """从 HTML 中提取纯文本"""
+    if selector:
+        # 简单 CSS 选择器提取（class/id/tag）
+        # 对于复杂选择器，lite 模式能力有限
+        pass  # 直接走全文提取
+
+    # 去掉 script/style/noscript
+    text = re.sub(r'<script[\s\S]*?</script>', '', html, flags=re.I)
+    text = re.sub(r'<style[\s\S]*?</style>', '', text, flags=re.I)
+    text = re.sub(r'<noscript[\s\S]*?</noscript>', '', text, flags=re.I)
+    text = re.sub(r'<svg[\s\S]*?</svg>', '', text, flags=re.I)
+    # 去标签
+    text = re.sub(r'<[^>]+>', '\n', text)
+    # HTML 实体
+    text = text.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>')
+    text = text.replace('&amp;', '&').replace('&quot;', '"')
+    text = re.sub(r'&#(\d+);', lambda m: chr(int(m.group(1))), text)
+    # 清理空白
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+async def lite_crawl(url: str, selector: str | None = None) -> str | None:
+    """轻量抓取：直接 HTTP GET，不经过 Chrome"""
+    try:
+        resp = await http_client.get(url, headers=_random_headers())
+        resp.raise_for_status()
+        html = resp.text
+        text = _extract_text(html, selector)
+        if len(text) > 200:
+            return text
+        return None  # 内容太少，可能是 JS 渲染页面
+    except Exception:
+        return None
+
+
+async def upload_lite_result(url: str, data: str) -> dict:
+    """将 lite 结果上传到 R2"""
+    task_id = uuid.uuid4().hex
+    key = f"tasks/{task_id}.json"
+    payload = json.dumps({"url": url, "data": data, "timestamp": time.time()}).encode()
+    r2.put_object(Bucket=R2_BUCKET, Key=key, Body=payload, ContentType="application/json")
+    download_url = get_download_url(key)
+    return {"r2Key": key, "downloadUrl": download_url}
+
+
+# ============ Search 引擎 ============
+async def search_ddg(query: str, limit: int = 10) -> list:
+    """DuckDuckGo HTML 搜索，按时间倒序"""
+    params = {
+        "q": query,
+        "df": "",   # 时间范围留空，靠排序
+        "s": "0",
+        "o": "json",
+    }
+    # DDG HTML 版本
+    url = f"https://html.duckduckgo.com/html/?q={httpx.URL(query)}&df=&s=0"
+    try:
+        resp = await http_client.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query, "df": ""},
+            headers=_random_headers(),
+        )
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        raise HTTPException(502, detail=f"搜索请求失败: {e}")
+
+    return _parse_ddg_results(html, limit)
+
+
+def _parse_ddg_results(html: str, limit: int) -> list:
+    """解析 DDG HTML 搜索结果"""
+    results = []
+    # 匹配结果块
+    blocks = re.findall(
+        r'<a[^>]+class="result__a"[^>]+href="([^"]*)"[^>]*>(.*?)</a>.*?'
+        r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+        html, re.S
+    )
+
+    for href, title, snippet in blocks[:limit]:
+        # 清理 DDG 的重定向 URL
+        actual_url = href
+        if "uddg=" in href:
+            m = re.search(r'uddg=([^&]+)', href)
+            if m:
+                from urllib.parse import unquote
+                actual_url = unquote(m.group(1))
+
+        # 清理 HTML 标签
+        title_clean = re.sub(r'<[^>]+>', '', title).strip()
+        snippet_clean = re.sub(r'<[^>]+>', '', snippet).strip()
+
+        if title_clean and actual_url:
+            results.append({
+                "title": title_clean,
+                "url": actual_url,
+                "snippet": snippet_clean,
+            })
+
+    return results
+
+
+async def search_bing(query: str, limit: int = 10) -> list:
+    """Bing 搜索备选"""
+    try:
+        resp = await http_client.get(
+            "https://www.bing.com/search",
+            params={"q": query, "count": str(limit)},
+            headers=_random_headers(),
+        )
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        raise HTTPException(502, detail=f"搜索请求失败: {e}")
+
+    return _parse_bing_results(html, limit)
+
+
+def _parse_bing_results(html: str, limit: int) -> list:
+    """解析 Bing 搜索结果"""
+    results = []
+    blocks = re.findall(
+        r'<li class="b_algo"[^>]*>.*?<a[^>]+href="([^"]*)"[^>]*>(.*?)</a>.*?<p[^>]*>(.*?)</p>',
+        html, re.S
+    )
+
+    for href, title, snippet in blocks[:limit]:
+        title_clean = re.sub(r'<[^>]+>', '', title).strip()
+        snippet_clean = re.sub(r'<[^>]+>', '', snippet).strip()
+        if title_clean and href:
+            results.append({
+                "title": title_clean,
+                "url": href,
+                "snippet": snippet_clean,
+            })
+
+    return results
 
 
 # ============ 用户 & 积分 ============
@@ -385,27 +559,178 @@ async def dashboard():
 @app.post("/api/crawl")
 async def api_crawl_post(request: Request):
     key, user = authenticate(request)
-    if user["credits"] < CREDITS_PER_TASK:
-        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
-
     body = await request.json()
     if not body.get("url"):
         return JSONResponse({"success": False, "error": "缺少 url"}, 400)
 
-    result = await crawl(body["url"], body.get("selector"), key)
-    return {"success": True, "url": body["url"], "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
+    url = body["url"]
+    mode = body.get("mode", "auto")  # auto / lite / full
+    selector = body.get("selector")
+
+    # URL 安全检查
+    blocked = is_url_blocked(url)
+    if blocked:
+        return JSONResponse({"success": False, "error": blocked}, 403)
+
+    # 积分检查
+    cost = CREDITS_LITE if mode == "lite" else CREDITS_PER_TASK
+    if mode == "auto":
+        cost = CREDITS_LITE  # auto 先尝试 lite
+    if user["credits"] < cost:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
+
+    # Lite 模式
+    if mode in ("lite", "auto"):
+        text = await lite_crawl(url, selector)
+        if text:
+            result = await upload_lite_result(url, text)
+            # 扣积分
+            users = load_users()
+            if key in users:
+                users[key]["credits"] -= CREDITS_LITE
+                users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
+                save_users(users)
+            return {
+                "success": True, "url": url, "mode": "lite",
+                "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"],
+                "length": len(text),
+            }
+        if mode == "lite":
+            return JSONResponse({"success": False, "error": "Lite 模式无法获取内容（可能是 JS 渲染页面），请使用 mode=full"}, 422)
+        # auto 模式降级到 full
+        if user["credits"] < CREDITS_PER_TASK:
+            return JSONResponse({"success": False, "error": "Lite 失败需降级 Full 模式，但积分不足", "credits": user["credits"]}, 402)
+
+    # Full 模式
+    result = await crawl(url, selector, key)
+    return {"success": True, "url": url, "mode": "full", "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
 
 
 @app.get("/api/crawl")
-async def api_crawl_get(request: Request, url: str = None, selector: str = None):
+async def api_crawl_get(request: Request, url: str = None, selector: str = None, mode: str = "auto"):
     key, user = authenticate(request)
-    if user["credits"] < CREDITS_PER_TASK:
-        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
     if not url:
         return JSONResponse({"success": False, "error": "缺少 url"}, 400)
 
+    # 转发到 POST 逻辑
+    blocked = is_url_blocked(url)
+    if blocked:
+        return JSONResponse({"success": False, "error": blocked}, 403)
+
+    cost = CREDITS_LITE if mode == "lite" else CREDITS_PER_TASK
+    if mode == "auto":
+        cost = CREDITS_LITE
+    if user["credits"] < cost:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
+
+    if mode in ("lite", "auto"):
+        text = await lite_crawl(url, selector)
+        if text:
+            result = await upload_lite_result(url, text)
+            users = load_users()
+            if key in users:
+                users[key]["credits"] -= CREDITS_LITE
+                users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
+                save_users(users)
+            return {
+                "success": True, "url": url, "mode": "lite",
+                "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"],
+                "length": len(text),
+            }
+        if mode == "lite":
+            return JSONResponse({"success": False, "error": "Lite 模式无法获取内容"}, 422)
+        if user["credits"] < CREDITS_PER_TASK:
+            return JSONResponse({"success": False, "error": "Lite 失败需降级 Full 模式，但积分不足"}, 402)
+
     result = await crawl(url, selector, key)
-    return {"success": True, "url": url, "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
+    return {"success": True, "url": url, "mode": "full", "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
+
+
+# ============ Search API ============
+@app.post("/api/search")
+async def api_search_post(request: Request):
+    key, user = authenticate(request)
+    if user["credits"] < CREDITS_LITE:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
+
+    body = await request.json()
+    q = body.get("q", "").strip()
+    if not q:
+        return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
+
+    limit = min(body.get("limit", 10), 20)
+    engine = body.get("engine", "duckduckgo")
+
+    # 搜索
+    if engine == "bing":
+        results = await search_bing(q, limit)
+    else:
+        results = await search_ddg(q, limit)
+        if not results:
+            # DDG 失败，降级到 Bing
+            results = await search_bing(q, limit)
+
+    # 上传到 R2
+    task_id = uuid.uuid4().hex
+    r2_key = f"tasks/{task_id}.json"
+    payload = json.dumps({
+        "query": q, "engine": engine, "results": results,
+        "count": len(results), "timestamp": time.time(),
+    }, ensure_ascii=False).encode()
+    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
+    download_url = get_download_url(r2_key)
+
+    # 扣积分
+    users = load_users()
+    if key in users:
+        users[key]["credits"] -= CREDITS_LITE
+        users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
+        save_users(users)
+
+    return {
+        "success": True, "query": q, "engine": engine,
+        "count": len(results), "results": results,
+        "r2Key": r2_key, "downloadUrl": download_url,
+    }
+
+
+@app.get("/api/search")
+async def api_search_get(request: Request, q: str = None, limit: int = 10, engine: str = "duckduckgo"):
+    key, user = authenticate(request)
+    if user["credits"] < CREDITS_LITE:
+        return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
+    if not q:
+        return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
+
+    limit = min(limit, 20)
+
+    if engine == "bing":
+        results = await search_bing(q, limit)
+    else:
+        results = await search_ddg(q, limit)
+        if not results:
+            results = await search_bing(q, limit)
+
+    task_id = uuid.uuid4().hex
+    r2_key = f"tasks/{task_id}.json"
+    payload = json.dumps({
+        "query": q, "engine": engine, "results": results,
+        "count": len(results), "timestamp": time.time(),
+    }, ensure_ascii=False).encode()
+    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
+    download_url = get_download_url(r2_key)
+
+    users = load_users()
+    if key in users:
+        users[key]["credits"] -= CREDITS_LITE
+        users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
+        save_users(users)
+
+    return {
+        "success": True, "query": q, "engine": engine,
+        "count": len(results), "results": results,
+        "r2Key": r2_key, "downloadUrl": download_url,
+    }
 
 
 @app.get("/api/balance")
