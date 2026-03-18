@@ -122,9 +122,17 @@ function parseBing() {
     const snippet = el.querySelector(".b_caption p, .b_algoSlug");
     if (!a) return;
 
+    // Bing 链接是重定向的，提取真实 URL
+    let url = a.href || "";
+    try {
+      const u = new URL(url);
+      const real = u.searchParams.get("u");
+      if (real) url = atob(real.replace(/^a1/, ""));
+    } catch (e) {}
+
     results.push({
       title: a.innerText?.trim() || "",
-      url: a.href || "",
+      url: url,
       description: snippet?.innerText?.trim() || "",
     });
   });
@@ -133,21 +141,26 @@ function parseBing() {
 
 function parseGoogle() {
   const results = [];
-  document.querySelectorAll("#search .g").forEach((el) => {
+  // Google 搜索结果多种容器选择器
+  const containers = document.querySelectorAll("#search .g, #rso .g, [data-hveid] .g, .MjjYud .g");
+  containers.forEach((el) => {
     const a = el.querySelector("a[href]");
     const h3 = el.querySelector("h3");
-    // snippet 在不同布局中位置不同
-    const snippet = el.querySelector("[data-sncf], .VwiC3b, .IsZvec");
     if (!a || !h3) return;
 
     const url = a.href || "";
-    if (url.startsWith("http")) {
-      results.push({
-        title: h3.innerText?.trim() || "",
-        url: url,
-        description: snippet?.innerText?.trim() || "",
-      });
-    }
+    if (!url.startsWith("http") || url.includes("google.com/search")) return;
+
+    // snippet 位置经常变
+    const snippet = el.querySelector("[data-sncf], .VwiC3b, .IsZvec, .lEBKkf, span.st, .s3v9rd")
+      || el.querySelector("div[data-content-feature] span")
+      || el.querySelector("div > span");
+
+    results.push({
+      title: h3.innerText?.trim() || "",
+      url: url,
+      description: snippet?.innerText?.trim() || "",
+    });
   });
   return results;
 }

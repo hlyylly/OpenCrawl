@@ -650,8 +650,8 @@ def _merge_results(all_results: list[list], sources: list[str]) -> list:
 async def _do_search(q: str, mode: str, key: str):
     """执行搜索，lite=单引擎, full=多引擎并行"""
     if mode == "full":
-        # 并行搜索四引擎
-        engines = ["duckduckgo", "bing", "google", "baidu"]
+        # 并行搜索三引擎（Google 反爬太强，暂不使用）
+        engines = ["duckduckgo", "bing", "baidu"]
         tasks_list = []
         for eng in engines:
             url = _build_search_url(q, eng)
