@@ -79,7 +79,7 @@ This gives your VPS-hosted agent access to a **pool of real browsers** without a
 - **URL Blacklist** — Blocks localhost, internal IPs, cloud metadata, dangerous ports
 - **Version Control** — Outdated Workers are rejected and prompted to update
 - **Auto Cleanup** — R2 objects expire after 1 day, zero storage cost
-- **One-Click Registration** — Sign up on the homepage, get 100 free credits
+- **One-Click Registration** — Sign up on the homepage, get 1,000 free credits
 
 ## Quick Start
 

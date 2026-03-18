@@ -36,7 +36,7 @@ def version_gte(v: str, min_v: str) -> bool:
         return False
 CREDITS_LITE = 0.1  # lite 模式积分
 CREDITS_SEARCH_FULL = 3  # full search 积分（多引擎并行）
-REGISTER_CREDITS = 100  # 注册赠送积分
+REGISTER_CREDITS = 1000  # 注册赠送积分
 
 # ============ UA 池 ============
 USER_AGENTS = [
