@@ -150,14 +150,16 @@ function parseBing() {
     results.push({ title, url, description: desc });
   });
 
-  // 策略2: 新版 Bing（基于 h2 查找，兼容动态 class）
-  if (results.length < 3) {
+  // 策略2: 补充遗漏（基于 h2 查找，兼容动态 class）
+  {
     document.querySelectorAll("h2 a[href]").forEach((a) => {
       const title = a.innerText?.trim();
       if (!title || seen.has(title)) return;
+      // 跳过非搜索结果
+      if (title.startsWith("Related searches") || title.startsWith("Videos of") || title.startsWith("People also")) return;
 
       let url = a.href || "";
-      if (url.includes("bing.com/aclick") || url.includes("bing.com/search") || url.includes("javascript:")) return;
+      if (url.includes("bing.com/aclick") || url.includes("bing.com/search") || url.includes("bing.com/videos") || url.includes("javascript:")) return;
 
       try {
         const u = new URL(url);
