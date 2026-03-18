@@ -1,3 +1,6 @@
+// 跳过 about:blank（标签页创建后会先加载 blank，再导航到目标 URL）
+if (location.href === "about:blank") return;
+
 // 向 background 查询：当前标签页是否有关联的爬取任务
 chrome.runtime.sendMessage({ type: "getTask" }, (response) => {
   if (!response) return;
