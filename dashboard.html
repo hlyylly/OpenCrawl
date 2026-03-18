@@ -106,6 +106,7 @@
   <div style="display:flex;align-items:center;gap:12px">
     <a href="/user" style="color:var(--blue);text-decoration:none;font-size:13px">用户面板</a>
     <a href="/admin" style="color:var(--yellow);text-decoration:none;font-size:13px">管理后台</a>
+    <a href="https://github.com/hlyylly/OpenCrawl" target="_blank" style="color:var(--text2);text-decoration:none;font-size:13px">GitHub</a>
     <div id="statusBadge" class="status-badge disconnected">
       <div class="status-dot"></div>
       <span id="statusText">加载中...</span>
@@ -138,6 +139,32 @@
         <button onclick="navigator.clipboard.writeText(document.getElementById('regKey').textContent).then(()=>{this.textContent='已复制';setTimeout(()=>this.textContent='复制',1500)})" style="padding:5px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:11px;white-space:nowrap">复制</button>
       </div>
       <div style="margin-top:8px;font-size:12px;color:var(--text2)">积分: <span style="color:var(--green);font-weight:700" id="regCredits"></span> | <a href="/user" style="color:var(--blue);text-decoration:none">前往用户面板 →</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- 成为 Worker -->
+<div style="margin:0 24px 16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+  <div style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap">
+    <div style="flex:1;min-width:280px">
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Become a Worker — Earn Credits</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:12px">
+        Install our Chrome extension to contribute your browser's rendering power. You'll earn <span style="color:var(--green);font-weight:600">1 credit</span> for every page you help render.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="https://github.com/hlyylly/OpenCrawl/archive/refs/heads/main.zip" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;background:var(--green);color:#fff;text-decoration:none;font-size:13px;font-weight:600">Download Extension</a>
+        <a href="https://github.com/hlyylly/OpenCrawl" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-decoration:none;font-size:13px">View on GitHub</a>
+      </div>
+    </div>
+    <div style="flex:1;min-width:280px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px;font-size:12px;line-height:1.8;color:var(--text2)">
+      <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600">Installation Guide</div>
+      <div><span style="color:var(--blue);font-weight:600">1.</span> Download and unzip the project</div>
+      <div><span style="color:var(--blue);font-weight:600">2.</span> Open <span style="color:var(--text);font-family:monospace">chrome://extensions/</span> and enable <b style="color:var(--text)">Developer Mode</b></div>
+      <div><span style="color:var(--blue);font-weight:600">3.</span> Click <b style="color:var(--text)">"Load unpacked"</b> and select the <span style="color:var(--text);font-family:monospace">extension/</span> folder</div>
+      <div><span style="color:var(--blue);font-weight:600">4.</span> Click the extension icon, set server to: <span style="color:var(--green);font-family:monospace">ws://39.105.206.76:9877/ws</span></div>
+      <div><span style="color:var(--blue);font-weight:600">5.</span> (Optional) Enter your API Key to earn credits</div>
+      <div><span style="color:var(--blue);font-weight:600">6.</span> Click <b style="color:var(--text)">"Save & Reconnect"</b></div>
+      <div style="margin-top:6px"><span style="color:var(--yellow)">Tip:</span> Enable <b style="color:var(--text)">"Allow in incognito"</b> in extension details for cookie isolation</div>
     </div>
   </div>
 </div>
