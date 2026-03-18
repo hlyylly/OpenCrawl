@@ -655,7 +655,7 @@ async def _do_search(q: str, mode: str, key: str):
         tasks_list = []
         for eng in engines:
             url = _build_search_url(q, eng)
-            tasks_list.append(crawl(url, "__search__", key, "lite"))
+            tasks_list.append(crawl(url, "__search__", key, "full"))
 
         results_raw = await asyncio.gather(*tasks_list, return_exceptions=True)
 
@@ -674,7 +674,7 @@ async def _do_search(q: str, mode: str, key: str):
     else:
         # lite: 单引擎
         url = _build_search_url(q, "duckduckgo")
-        result = await crawl(url, "__search__", key, "lite")
+        result = await crawl(url, "__search__", key, "full")
         search_results = await _fetch_search_results(result["r2Key"])
         return search_results, ["duckduckgo"]
 

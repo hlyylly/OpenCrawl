@@ -10,7 +10,7 @@ chrome.runtime.sendMessage({ type: "getTask" }, (response) => {
   const isSearch = selector === "__search__";
   console.log(`[OpenCrawl] 任务 ${taskId.slice(0, 8)} ${isLite ? "(lite)" : ""} ${isSearch ? "(search)" : ""}`);
 
-  waitForRender(isLite, () => {
+  waitForRender(isLite, isSearch, () => {
     console.log("[OpenCrawl] 页面就绪，开始提取...");
 
     let result;
@@ -33,13 +33,14 @@ chrome.runtime.sendMessage({ type: "getTask" }, (response) => {
   });
 });
 
-function waitForRender(isLite, callback) {
+function waitForRender(isLite, isSearch, callback) {
   let mutationTimer = null;
   let settled = false;
 
-  const STABLE_DELAY = isLite ? 500 : 2000;
-  const INITIAL_WAIT = isLite ? 1000 : 3000;
-  const MAX_WAIT = isLite ? 8000 : 15000;
+  // 搜索：快速但完整渲染；lite：最快；full：最完整
+  const STABLE_DELAY = isSearch ? 800 : isLite ? 500 : 2000;
+  const INITIAL_WAIT = isSearch ? 1500 : isLite ? 1000 : 3000;
+  const MAX_WAIT = isSearch ? 10000 : isLite ? 8000 : 15000;
 
   function settle() {
     if (settled) return;
