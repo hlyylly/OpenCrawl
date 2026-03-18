@@ -35,6 +35,8 @@ async function saveConfig(newCfg) {
 }
 
 // ============ 无痕窗口管理 ============
+let _incognitoPromise = null;
+
 async function getIncognitoWindow() {
   // 检查已有窗口是否还存在
   if (incognitoWindowId) {
@@ -46,15 +48,24 @@ async function getIncognitoWindow() {
     }
   }
 
-  // 创建新的无痕窗口
-  const win = await chrome.windows.create({
-    incognito: true,
-    focused: false,
-    state: "minimized",
-    url: "about:blank",
-  });
-  incognitoWindowId = win.id;
-  return incognitoWindowId;
+  // 并发锁：多个任务同时请求时只创建一个窗口
+  if (_incognitoPromise) {
+    return _incognitoPromise;
+  }
+
+  _incognitoPromise = (async () => {
+    const win = await chrome.windows.create({
+      incognito: true,
+      focused: false,
+      state: "minimized",
+      url: "about:blank",
+    });
+    incognitoWindowId = win.id;
+    _incognitoPromise = null;
+    return incognitoWindowId;
+  })();
+
+  return _incognitoPromise;
 }
 
 // ============ WebSocket ============
