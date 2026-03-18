@@ -8,9 +8,10 @@ let reconnectAttempt = 0;
 let connected = false;
 let incognitoAllowed = false;
 
-// taskId -> { tabId, windowId, url, selector, uploadUrl, timer }
+// taskId -> { tabId, url, selector, uploadUrl, timer }
 const activeTasks = new Map();
 let stats = { completed: 0, failed: 0, credits: 0 };
+let incognitoWindowId = null; // 复用的无痕窗口
 
 // ============ 配置管理 ============
 async function loadConfig() {
@@ -31,6 +32,29 @@ async function saveConfig(newCfg) {
   if (newCfg.wsUrl) wsUrl = newCfg.wsUrl;
   if (newCfg.apiKey !== undefined) apiKey = newCfg.apiKey;
   await chrome.storage.local.set({ wsUrl, apiKey });
+}
+
+// ============ 无痕窗口管理 ============
+async function getIncognitoWindow() {
+  // 检查已有窗口是否还存在
+  if (incognitoWindowId) {
+    try {
+      await chrome.windows.get(incognitoWindowId);
+      return incognitoWindowId;
+    } catch {
+      incognitoWindowId = null;
+    }
+  }
+
+  // 创建新的无痕窗口
+  const win = await chrome.windows.create({
+    incognito: true,
+    focused: false,
+    state: "minimized",
+    url: "about:blank",
+  });
+  incognitoWindowId = win.id;
+  return incognitoWindowId;
 }
 
 // ============ WebSocket ============
@@ -120,30 +144,23 @@ async function handleTask(task) {
   addLog("info", `收到任务 -> ${url}`);
 
   try {
-    let tabId, windowId;
+    let tabId;
 
     if (incognitoAllowed) {
-      // 无痕窗口：完全隔离 Cookie，保护隐私
-      const win = await chrome.windows.create({
-        url,
-        incognito: true,
-        focused: false,
-        state: "minimized",
-      });
-      tabId = win.tabs[0].id;
-      windowId = win.id;
+      // 复用无痕窗口，只创建标签页
+      const winId = await getIncognitoWindow();
+      const tab = await chrome.tabs.create({ windowId: winId, url, active: false });
+      tabId = tab.id;
     } else {
-      // 无法使用无痕模式，用普通标签页
       const tab = await chrome.tabs.create({ url, active: false });
       tabId = tab.id;
-      windowId = null;
     }
 
     const timer = setTimeout(() => {
       finishTask(taskId, null, "渲染超时");
     }, TASK_TIMEOUT);
 
-    activeTasks.set(taskId, { tabId, windowId, url, selector, uploadUrl, timer });
+    activeTasks.set(taskId, { tabId, url, selector, uploadUrl, timer });
     broadcastState();
   } catch (e) {
     reportComplete(taskId, "打开标签页失败: " + e.message);
@@ -159,13 +176,9 @@ async function finishTask(taskId, data, error) {
   clearTimeout(task.timer);
   activeTasks.delete(taskId);
 
-  // 关闭标签页/窗口
+  // 关闭标签页（无痕窗口保留复用）
   try {
-    if (task.windowId) {
-      await chrome.windows.remove(task.windowId);
-    } else {
-      await chrome.tabs.remove(task.tabId);
-    }
+    await chrome.tabs.remove(task.tabId);
   } catch (e) {}
 
   if (error) {
