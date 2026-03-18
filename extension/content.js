@@ -118,12 +118,11 @@ function parseDDG() {
 
 function parseBing() {
   const results = [];
-  document.querySelectorAll("#b_results .b_algo").forEach((el) => {
-    const a = el.querySelector("h2 a");
-    const snippet = el.querySelector(".b_caption p, .b_algoSlug");
+  document.querySelectorAll("#b_results > li.b_algo, #b_results > li.b_ans").forEach((el) => {
+    const a = el.querySelector("h2 a, h3 a");
     if (!a) return;
 
-    // Bing 链接是重定向的，提取真实 URL
+    // Bing 链接去重定向
     let url = a.href || "";
     try {
       const u = new URL(url);
@@ -131,11 +130,15 @@ function parseBing() {
       if (real) url = atob(real.replace(/^a1/, ""));
     } catch (e) {}
 
-    results.push({
-      title: a.innerText?.trim() || "",
-      url: url,
-      description: snippet?.innerText?.trim() || "",
-    });
+    // 多种 snippet 位置
+    const snippet = el.querySelector(".b_caption p, .b_algoSlug, .b_paractl, .b_dList p, .b_lineclamp2, .b_mText p");
+    const desc = snippet?.innerText?.trim() || "";
+
+    // 跳过无标题或广告
+    const title = a.innerText?.trim() || "";
+    if (!title || url.includes("bing.com/aclick")) return;
+
+    results.push({ title, url, description: desc });
   });
   return results;
 }
@@ -168,16 +171,33 @@ function parseGoogle() {
 
 function parseBaidu() {
   const results = [];
-  document.querySelectorAll("#content_left .result, #content_left .c-container").forEach((el) => {
+  document.querySelectorAll("#content_left .c-container").forEach((el) => {
     const a = el.querySelector("h3 a");
-    const snippet = el.querySelector(".c-abstract, .content-right_8Zs40");
     if (!a) return;
 
-    results.push({
-      title: a.innerText?.trim() || "",
-      url: a.href || "",
-      description: snippet?.innerText?.trim() || "",
-    });
+    // 百度真实 URL：从 data-log 或 mu 属性中提取
+    let url = "";
+    const mu = el.getAttribute("mu");
+    if (mu && mu.startsWith("http")) {
+      url = mu;
+    } else {
+      // data-log 里可能有真实 URL
+      try {
+        const log = JSON.parse(el.getAttribute("data-log") || "{}");
+        if (log.mu) url = log.mu;
+      } catch (e) {}
+    }
+    // 兜底用 a.href（百度重定向链接）
+    if (!url) url = a.href || "";
+
+    // 多种 snippet 选择器
+    const snippet = el.querySelector(".c-abstract, .c-span-last .content-right_8Zs40, .c-gap-top-small span, [class*='content-right']");
+    const desc = snippet?.innerText?.trim() || "";
+
+    const title = a.innerText?.trim() || "";
+    if (!title) return;
+
+    results.push({ title, url, description: desc });
   });
   return results;
 }
