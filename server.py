@@ -643,7 +643,7 @@ async def api_crawl_get(request: Request, url: str = None, selector: str = None,
 # ============ Search API (走 Worker) ============
 SEARCH_ENGINES = {
     "duckduckgo": "https://html.duckduckgo.com/html/?q={}",
-    "bing": "https://www.bing.com/search?q={}&setlang=en",
+    "bing": "https://www.bing.com/search?q={}&setlang=en&cc=us",
     "google": "https://www.google.com/search?q={}",
     "baidu": "https://www.baidu.com/s?wd={}",
 }

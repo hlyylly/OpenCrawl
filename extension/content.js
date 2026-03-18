@@ -118,11 +118,15 @@ function parseDDG() {
 
 function parseBing() {
   const results = [];
+  const seen = new Set();
+
+  // 策略1: 经典 DOM（b_algo）
   document.querySelectorAll("#b_results .b_algo, #b_results .b_ans").forEach((el) => {
     const a = el.querySelector("h2 a, h3 a");
     if (!a) return;
+    const title = a.innerText?.trim();
+    if (!title || seen.has(title)) return;
 
-    // Bing 链接去重定向
     let url = a.href || "";
     try {
       const u = new URL(url);
@@ -130,23 +134,52 @@ function parseBing() {
       if (real) url = atob(real.replace(/^a1/, ""));
     } catch (e) {}
 
-    // 多种 snippet 位置
-    const snippet = el.querySelector(".b_caption p, .b_algoSlug, .b_paractl, .b_dList p, .b_lineclamp2, .b_mText p, .b_caption .b_factrow, p");
-    let desc = snippet?.innerText?.trim() || "";
-    // 兜底：取元素内除标题外最长的文本
+    if (url.includes("bing.com/aclick")) return;
+
+    let desc = "";
+    const snippet = el.querySelector("p, .b_caption p, .b_algoSlug, .b_lineclamp2");
+    desc = snippet?.innerText?.trim() || "";
     if (!desc) {
       el.querySelectorAll("span, p, div").forEach(s => {
         const t = s.innerText?.trim();
-        if (t && t.length > desc.length && t !== (a.innerText?.trim())) desc = t;
+        if (t && t.length > desc.length && t !== title) desc = t;
       });
     }
 
-    // 跳过无标题或广告
-    const title = a.innerText?.trim() || "";
-    if (!title || url.includes("bing.com/aclick")) return;
-
+    seen.add(title);
     results.push({ title, url, description: desc });
   });
+
+  // 策略2: 新版 Bing（基于 h2 查找，兼容动态 class）
+  if (results.length < 3) {
+    document.querySelectorAll("h2 a[href]").forEach((a) => {
+      const title = a.innerText?.trim();
+      if (!title || seen.has(title)) return;
+
+      let url = a.href || "";
+      if (url.includes("bing.com/aclick") || url.includes("bing.com/search") || url.includes("javascript:")) return;
+
+      try {
+        const u = new URL(url);
+        const real = u.searchParams.get("u");
+        if (real) url = atob(real.replace(/^a1/, ""));
+      } catch (e) {}
+
+      // 向上找描述
+      let desc = "";
+      const container = a.closest("li") || a.closest("div[class]")?.parentElement;
+      if (container) {
+        container.querySelectorAll("p, span").forEach(s => {
+          const t = s.innerText?.trim();
+          if (t && t.length > desc.length && t !== title && t.length > 20) desc = t;
+        });
+      }
+
+      seen.add(title);
+      results.push({ title, url, description: desc });
+    });
+  }
+
   return results;
 }
 
