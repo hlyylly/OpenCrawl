@@ -541,7 +541,7 @@ async def crawl(url: str, selector: str | None, api_key: str, mode: str = "full"
     upload_url, r2_key = get_upload_url(task_id)
     future = asyncio.get_event_loop().create_future()
 
-    timeout = 20 if mode == "lite" else TASK_TIMEOUT
+    timeout = 30 if mode == "lite" else TASK_TIMEOUT
 
     tasks[task_id] = {
         "url": url, "selector": selector,
@@ -660,11 +660,14 @@ async def _do_search(q: str, mode: str, key: str):
         results_raw = await asyncio.gather(*tasks_list, return_exceptions=True)
 
         all_results = []
-        for r in results_raw:
+        for i, r in enumerate(results_raw):
             if isinstance(r, Exception) or isinstance(r, BaseException):
+                print(f"[OpenCrawl] Search {engines[i]} failed: {r}")
                 all_results.append([])
             else:
-                all_results.append(await _fetch_search_results(r["r2Key"]))
+                items = await _fetch_search_results(r["r2Key"])
+                print(f"[OpenCrawl] Search {engines[i]}: {len(items)} results")
+                all_results.append(items)
 
         merged = _merge_results(all_results, engines)
         return merged, engines
