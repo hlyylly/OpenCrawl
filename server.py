@@ -26,6 +26,7 @@ MAX_HISTORY = 500
 ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_OpenCrawl")
 CREDITS_PER_TASK = 1
 CREDITS_LITE = 0.1  # lite 模式积分
+CREDITS_SEARCH_FULL = 3  # full search 积分（多引擎并行）
 REGISTER_CREDITS = 100  # 注册赠送积分
 
 # ============ UA 池 ============
@@ -639,8 +640,8 @@ def _merge_results(all_results: list[list], sources: list[str]) -> list:
 async def _do_search(q: str, mode: str, key: str):
     """执行搜索，lite=单引擎, full=多引擎并行"""
     if mode == "full":
-        # 并行搜索 DDG + Bing + Google
-        engines = ["duckduckgo", "bing", "google"]
+        # 并行搜索四引擎
+        engines = ["duckduckgo", "bing", "google", "baidu"]
         tasks_list = []
         for eng in engines:
             url = _build_search_url(q, eng)
@@ -674,19 +675,19 @@ async def api_search_post(request: Request):
         return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
 
     mode = body.get("mode", "lite")  # lite=DDG单引擎, full=DDG+Bing+Google并行
-    cost = CREDITS_PER_TASK if mode == "full" else CREDITS_LITE
+    cost = CREDITS_SEARCH_FULL if mode == "full" else CREDITS_LITE
     if user["credits"] < cost:
         return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
 
     results, engines = await _do_search(q, mode, key)
 
-    # 扣积分（crawl 内部已按 lite 扣了，这里补差额）
-    # lite search: crawl 扣了 0.1，刚好
-    # full search: crawl 扣了 0.1*3=0.3，需要补 0.7
+    # 扣积分补差额（crawl 内部已按 lite 各扣 0.1）
+    # lite: crawl 扣了 0.1，刚好
+    # full: crawl 扣了 0.1*4=0.4，补扣到 3
     if mode == "full":
         users = load_users()
         if key in users:
-            users[key]["credits"] -= (CREDITS_PER_TASK - CREDITS_LITE * 3)
+            users[key]["credits"] -= (CREDITS_SEARCH_FULL - CREDITS_LITE * len(engines))
             save_users(users)
 
     # 合并结果上传到 R2
