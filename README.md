@@ -1,207 +1,228 @@
 # OpenCrawl
 
-积分制分布式爬虫平台。使用者付积分调 API，Worker（Chrome 扩展）贡献算力赚积分，数据通过 Cloudflare R2 中转。
+**Distributed browser rendering as a service.** Workers contribute real Chrome browsers, users pay credits to crawl any JavaScript-rendered page.
 
-## 架构
+Built for tools like [OpenClaw](https://github.com/browser-use/web-ui) that run on headless VPS environments without real browser access.
 
-```
-使用者                    平台 (FastAPI)              Worker (Chrome 扩展)
-  │                         │                            │
-  │  POST /api/crawl        │                            │
-  │  Authorization: Bearer  │      WebSocket /ws         │
-  │  ak_xxx                 │◄───────────────────────────┤
-  ├────────────────────────►│                            │
-  │                         │  下发任务 + R2 上传地址     │
-  │                         ├───────────────────────────►│
-  │                         │                            │ 打开标签页
-  │                         │                            │ 渲染页面
-  │                         │                            │ 提取内容
-  │                         │            Cloudflare R2   │
-  │                         │           (零出口流量)     │
-  │                         │                ▲           │
-  │                         │                │ PUT       │
-  │                         │                ├───────────┤
-  │                         │  taskComplete  │           │
-  │                         │◄───────────────┤           │
-  │                         │                            │
-  │  积分结算:               │                            │
-  │  使用者 -1, Worker +1   │                            │
-  │                         │                            │
-  │  {downloadUrl}          │                            │
-  │◄────────────────────────┤                            │
-  │                         │                            │
-  │  GET downloadUrl ───────┼───────► R2 下载结果         │
-```
+[中文文档](README_CN.md)
 
-## 功能
+---
 
-- **API 爬取** — 发送 URL，返回渲染后的页面文本 + R2 下载链接
-- **积分系统** — 使用者消费积分，Worker 赚取积分
-- **API Key 认证** — 每个用户独立的 API Key
-- **管理后台** — 创建用户、充值积分、查看统计
-- **用户面板** — 查看积分余额、API Key、使用示例
-- **Dashboard** — 实时监控 Worker 连接、任务状态
-- **域名负载均衡** — 同一域名分散到不同 Worker
-- **R2 自动过期** — 结果文件 1 天自动删除，不占存储
+## Why OpenCrawl?
 
-## 技术栈
+AI agents and scraping tools on VPS/cloud servers often can't render JavaScript-heavy pages — they lack a real browser. Solutions like Puppeteer or Playwright are resource-heavy (4GB+ RAM) and hard to maintain.
 
-| 组件 | 技术 |
-|------|------|
-| 平台服务端 | Python / FastAPI / uvicorn |
-| 数据存储 | Cloudflare R2 (S3 兼容) |
-| 积分存储 | JSON 文件 (data/users.json) |
-| Worker | Chrome Extension (Manifest V3) |
-| 通信协议 | HTTP API + WebSocket |
+OpenCrawl solves this by **crowdsourcing real Chrome browsers**:
 
-## 文件结构
+- Anyone can install the Chrome extension and become a **Worker**
+- Workers earn credits for each page they render
+- Users spend credits to crawl any URL via a simple API
+- Results are stored on **Cloudflare R2** (zero egress fees)
+- Workers' cookies and sessions are **isolated via incognito mode**
 
 ```
-OpenCrawl/
-├── server.py            # FastAPI 服务端 (API + WebSocket + 积分)
-├── dashboard.html       # 监控面板
-├── admin.html           # 管理后台
-├── user.html            # 用户面板
-├── requirements.txt     # Python 依赖
-├── .env                 # 环境变量 (不提交)
-├── .env.example         # 环境变量示例
-├── data/
-│   └── users.json       # 用户数据 (不提交)
-└── extension/           # Chrome 扩展
-    ├── manifest.json
-    ├── background.js    # WebSocket + 任务调度 + R2 上传
-    ├── content.js       # 页面内容提取
-    ├── popup.html       # 扩展弹窗 UI
-    └── popup.js         # 弹窗逻辑
+User (API)                Platform (FastAPI)           Worker (Chrome Extension)
+    │                          │                             │
+    │  POST /api/crawl         │        WebSocket /ws        │
+    │  {url, selector?}        │◄────────────────────────────┤
+    ├─────────────────────────►│                             │
+    │                          │  dispatch task + upload URL  │
+    │                          ├────────────────────────────►│
+    │                          │                             │ open tab (incognito)
+    │                          │                             │ render JavaScript
+    │                          │                             │ extract DOM content
+    │                          │          Cloudflare R2      │
+    │                          │         (zero egress)       │
+    │                          │               ▲ PUT         │
+    │                          │               ├─────────────┤
+    │                          │  taskComplete  │             │
+    │  credits: user -1        │◄──────────────┤             │
+    │  credits: worker +1      │               │             │
+    │                          │               │             │
+    │  {downloadUrl}           │               │             │
+    │◄─────────────────────────┤               │             │
+    │                          │               │             │
+    │  GET downloadUrl ────────┼──────► R2 download          │
 ```
 
-## 部署
+## OpenClaw Integration
 
-### 1. 创建 Cloudflare R2 Bucket
+OpenCrawl is designed as a **browser rendering backend** for [OpenClaw](https://github.com/browser-use/web-ui) agents running on headless VPS environments.
 
-1. 注册 [Cloudflare](https://dash.cloudflare.com/) 账号
-2. 进入 **R2 Object Storage** → **Create bucket**，名称填 `opencrawl`（或自定义）
-3. 进入 **R2** → **Manage R2 API Tokens** → **Create API Token**
+Instead of installing Chromium + Playwright on your server (4GB+ RAM, complex setup), point your OpenClaw agent to OpenCrawl's API:
+
+```python
+import requests
+
+# Fetch any JS-rendered page through real Chrome browsers
+res = requests.post("https://your-opencrawl-server/api/crawl",
+    headers={"Authorization": "Bearer ak_your_key"},
+    json={"url": "https://example.com", "selector": ".main-content"})
+
+data = res.json()
+# data["downloadUrl"] → download the rendered page content from R2
+```
+
+This gives your VPS-hosted agent access to a **pool of real browsers** without any local browser installation.
+
+## Features
+
+- **API Crawling** — Send a URL, get back rendered page text + R2 download link
+- **Credit System** — Users spend credits, Workers earn credits
+- **API Key Auth** — Each user gets a unique API key
+- **Admin Panel** — Create users, recharge credits, view stats
+- **User Panel** — Check balance, view API key, usage examples
+- **Dashboard** — Real-time monitoring of Workers, tasks, history
+- **Domain Load Balancing** — Tasks distributed across Workers per domain
+- **Privacy Protection** — Crawling happens in incognito windows, isolating Worker cookies
+- **URL Blacklist** — Blocks localhost, internal IPs, cloud metadata, dangerous ports
+- **Auto Cleanup** — R2 objects expire after 1 day, zero storage cost
+- **One-Click Registration** — Sign up on the homepage, get 100 free credits
+
+## Quick Start
+
+### 1. Set Up Cloudflare R2
+
+1. Create a [Cloudflare](https://dash.cloudflare.com/) account
+2. Go to **R2 Object Storage** → **Create bucket** (name: `opencrawl`)
+3. Go to **R2** → **Manage R2 API Tokens** → **Create API Token**
    - Permissions: `Object Read & Write`
-   - 创建后记下以下三个值：
 
-| 环境变量 | 说明 | 获取位置 |
-|---------|------|---------|
-| `R2_ACCOUNT_ID` | Cloudflare Account ID | Dashboard 右侧栏，32 位字符串 |
-| `R2_ACCESS_KEY_ID` | R2 API Token 的 Access Key | 创建 API Token 后显示 |
-| `R2_SECRET_ACCESS_KEY` | R2 API Token 的 Secret Key | 创建 API Token 后显示（仅显示一次） |
+You'll need these values:
 
-### 2. 部署服务端
+| Variable | Description | Where to find |
+|----------|-------------|---------------|
+| `R2_ACCOUNT_ID` | Cloudflare Account ID | Dashboard sidebar, 32-char string |
+| `R2_ACCESS_KEY_ID` | R2 API Access Key | Shown after creating API Token |
+| `R2_SECRET_ACCESS_KEY` | R2 API Secret Key | Shown once after creating API Token |
 
-1. Python 3.10+ 环境
-2. 安装依赖：`pip install -r requirements.txt`
-3. 复制并编辑环境变量：
-   ```bash
-   cp .env.example .env
-   ```
-   编辑 `.env`：
-   ```bash
-   # Cloudflare R2（必填）
-   R2_ACCOUNT_ID=你的Account_ID          # Cloudflare Dashboard 右侧栏
-   R2_ACCESS_KEY_ID=你的Access_Key_ID    # R2 API Token 创建后获得
-   R2_SECRET_ACCESS_KEY=你的Secret_Key   # R2 API Token 创建后获得（仅显示一次）
-   R2_BUCKET=opencrawl                   # 你创建的 bucket 名称
-
-   # 服务配置
-   PORT=9877
-
-   # 管理员密钥（自定义，用于创建用户和充值积分）
-   ADMIN_KEY=your_admin_secret_key
-   ```
-4. 启动：
-   ```bash
-   uvicorn server:app --host 0.0.0.0 --port 9877
-   ```
-5. 首次启动后，创建第一个用户：
-   ```bash
-   curl -X POST http://localhost:9877/api/admin/create-key \
-     -H "Authorization: Bearer your_admin_secret_key" \
-     -H "Content-Type: application/json" \
-     -d '{"name": "我的账号", "credits": 100}'
-   ```
-   返回的 `apiKey`（如 `ak_xxx`）就是你的 API Key
-
-### Chrome 扩展 (Worker)
-
-1. 打开 `chrome://extensions/`，启用开发者模式
-2. 点击「加载已解压的扩展程序」，选择 `extension/` 目录
-3. 点击扩展图标，配置：
-   - 服务端地址：`ws://你的服务器IP:9877/ws`
-   - API Key：填入你的 Key（可选，用于赚积分）
-4. 点击「保存并重连」
-
-## API
-
-### 爬取页面（需认证）
+### 2. Deploy the Server
 
 ```bash
+git clone https://github.com/hlyylly/OpenCrawl.git
+cd OpenCrawl
+pip install -r requirements.txt
+
+cp .env.example .env
+# Edit .env with your R2 credentials and admin key
+
+uvicorn server:app --host 0.0.0.0 --port 9877
+```
+
+### 3. Create Your First User
+
+```bash
+curl -X POST http://localhost:9877/api/admin/create-key \
+  -H "Authorization: Bearer your_admin_key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-account", "credits": 100}'
+```
+
+Or just visit `http://localhost:9877` and click **Register**.
+
+### 4. Install the Chrome Extension (Worker)
+
+1. Open `chrome://extensions/`, enable Developer Mode
+2. Click "Load unpacked", select the `extension/` directory
+3. Click the extension icon, configure:
+   - Server URL: `ws://your-server-ip:9877/ws`
+   - API Key: your key (optional, for earning credits)
+4. Click "Save & Reconnect"
+5. **Recommended:** Go to extension details → Enable "Allow in incognito" for cookie isolation
+
+## API Reference
+
+### Crawl a Page
+
+```bash
+# POST
 curl -X POST http://your-server:9877/api/crawl \
   -H "Authorization: Bearer ak_xxx" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com", "selector": ".article"}'
+
+# GET (simpler)
+curl "http://your-server:9877/api/crawl?url=https://example.com&key=ak_xxx"
 ```
 
-响应：
+Response:
 ```json
 {
   "success": true,
   "url": "https://example.com",
   "r2Key": "tasks/xxx.json",
-  "downloadUrl": "https://...签名下载链接..."
+  "downloadUrl": "https://...signed-r2-url..."
 }
 ```
 
-### 查询积分
+### Check Balance
 
 ```bash
 curl http://your-server:9877/api/balance \
   -H "Authorization: Bearer ak_xxx"
 ```
 
-### 平台状态（公开）
+### Platform Status (Public)
 
 ```bash
 curl http://your-server:9877/api/status
 ```
 
-### 管理员 — 创建用户
+### Admin — Create User
 
 ```bash
 curl -X POST http://your-server:9877/api/admin/create-key \
-  -H "Authorization: Bearer your_admin_key" \
+  -H "Authorization: Bearer admin_key" \
   -H "Content-Type: application/json" \
-  -d '{"name": "用户名", "credits": 100}'
+  -d '{"name": "username", "credits": 100}'
 ```
 
-### 管理员 — 充值积分
+### Admin — Recharge Credits
 
 ```bash
 curl -X POST http://your-server:9877/api/admin/recharge \
-  -H "Authorization: Bearer your_admin_key" \
+  -H "Authorization: Bearer admin_key" \
   -H "Content-Type: application/json" \
   -d '{"apiKey": "ak_xxx", "credits": 50}'
 ```
 
-## 页面
+## Web Pages
 
-| 路径 | 说明 |
-|------|------|
-| `/` | Dashboard 监控面板 |
-| `/admin` | 管理后台（需 Admin Key） |
-| `/user` | 用户面板（需 API Key） |
+| Path | Description |
+|------|-------------|
+| `/` | Dashboard + one-click registration |
+| `/admin` | Admin panel (requires Admin Key) |
+| `/user` | User panel (requires API Key) |
 
-## R2 免费额度
+## Tech Stack
 
-| 项目 | 免费/月 |
-|------|--------|
-| 存储 | 10 GB |
-| 写入 (PUT) | 100 万次 |
-| 读取 (GET) | 1000 万次 |
-| 出口流量 | 无限免费 |
+| Component | Technology |
+|-----------|-----------|
+| Server | Python / FastAPI / uvicorn |
+| Storage | Cloudflare R2 (S3-compatible, zero egress) |
+| Credits | JSON file (data/users.json) |
+| Worker | Chrome Extension (Manifest V3) |
+| Communication | HTTP REST + WebSocket |
 
-按每任务 30KB、1天过期计算，每天 3 万个任务完全免费。
+## R2 Free Tier
+
+| Resource | Free/month |
+|----------|-----------|
+| Storage | 10 GB |
+| Write (PUT) | 1M requests |
+| Read (GET) | 10M requests |
+| Egress | **Unlimited free** |
+
+With 30KB average per task and 1-day auto-expiry, **up to 30,000 tasks/day for free**.
+
+## Security
+
+- **URL Blacklist** — Blocks `localhost`, private IPs (`10.x`, `192.168.x`, `172.16-31.x`), cloud metadata (`169.254.169.254`), dangerous ports (22, 3306, 6379...)
+- **Incognito Isolation** — Crawling tabs open in incognito windows, completely isolating Worker's personal cookies and sessions
+- **Signed URLs** — R2 upload/download URLs are time-limited (10min upload, 1hr download)
+- **Upload Verification** — Server verifies R2 upload via `HEAD` before confirming task completion
+- **Heartbeat Detection** — Stale Worker connections are automatically cleaned up after 30s
+
+## License
+
+MIT
