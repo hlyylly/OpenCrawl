@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "OpenCrawl",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "分布式爬虫 Worker - 接收服务端任务，用真实浏览器渲染并提取页面内容",
   "permissions": [
     "tabs",
     "scripting",
-    "storage"
+    "storage",
+    "management"
   ],
+  "incognito": "spanning",
   "host_permissions": [
     "<all_urls>"
   ],

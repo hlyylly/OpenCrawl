@@ -6,8 +6,9 @@ let apiKey = null;
 let ws = null;
 let reconnectAttempt = 0;
 let connected = false;
+let incognitoAllowed = false;
 
-// taskId -> { tabId, url, selector, uploadUrl, timer }
+// taskId -> { tabId, windowId, url, selector, uploadUrl, timer }
 const activeTasks = new Map();
 let stats = { completed: 0, failed: 0, credits: 0 };
 
@@ -16,6 +17,14 @@ async function loadConfig() {
   const cfg = await chrome.storage.local.get(["wsUrl", "apiKey"]);
   if (cfg.wsUrl) wsUrl = cfg.wsUrl;
   if (cfg.apiKey) apiKey = cfg.apiKey;
+
+  // 检查是否允许无痕模式
+  try {
+    const ext = await chrome.management.getSelf();
+    incognitoAllowed = ext.enabled && (await chrome.extension.isAllowedIncognitoAccess());
+  } catch {
+    incognitoAllowed = false;
+  }
 }
 
 async function saveConfig(newCfg) {
@@ -26,9 +35,17 @@ async function saveConfig(newCfg) {
 
 // ============ WebSocket ============
 function connect() {
+  // 验证 URL 格式
+  if (!wsUrl || (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://"))) {
+    addLog("error", `无效的 WebSocket 地址: ${wsUrl}`);
+    scheduleReconnect();
+    return;
+  }
+
   try {
     ws = new WebSocket(wsUrl);
   } catch (e) {
+    addLog("error", `连接失败: ${e.message}`);
     scheduleReconnect();
     return;
   }
@@ -38,6 +55,10 @@ function connect() {
     connected = true;
     console.log("[OpenCrawl] 已连接到服务端");
     addLog("success", `已连接 ${wsUrl}`);
+
+    if (!incognitoAllowed) {
+      addLog("warn", "未启用无痕模式权限，爬取将携带你的 Cookie（建议在扩展设置中开启「在无痕模式下启用」）");
+    }
 
     // 注册 Worker（发送 API Key 以获取积分）
     if (apiKey) {
@@ -59,12 +80,13 @@ function connect() {
 
   ws.onclose = () => {
     connected = false;
-    console.log("[OpenCrawl] 连接断开");
     broadcastState();
     scheduleReconnect();
   };
 
-  ws.onerror = () => {};
+  ws.onerror = () => {
+    // onclose 会紧跟着触发，不需要在这里处理
+  };
 }
 
 function scheduleReconnect() {
@@ -79,6 +101,8 @@ function reconnect() {
     ws.onclose = null;
     ws.close();
   }
+  ws = null;
+  connected = false;
   reconnectAttempt = 0;
   connect();
 }
@@ -96,13 +120,30 @@ async function handleTask(task) {
   addLog("info", `收到任务 -> ${url}`);
 
   try {
-    const tab = await chrome.tabs.create({ url, active: false });
+    let tabId, windowId;
+
+    if (incognitoAllowed) {
+      // 无痕窗口：完全隔离 Cookie，保护隐私
+      const win = await chrome.windows.create({
+        url,
+        incognito: true,
+        focused: false,
+        state: "minimized",
+      });
+      tabId = win.tabs[0].id;
+      windowId = win.id;
+    } else {
+      // 无法使用无痕模式，用普通标签页
+      const tab = await chrome.tabs.create({ url, active: false });
+      tabId = tab.id;
+      windowId = null;
+    }
 
     const timer = setTimeout(() => {
       finishTask(taskId, null, "渲染超时");
     }, TASK_TIMEOUT);
 
-    activeTasks.set(taskId, { tabId: tab.id, url, selector, uploadUrl, timer });
+    activeTasks.set(taskId, { tabId, windowId, url, selector, uploadUrl, timer });
     broadcastState();
   } catch (e) {
     reportComplete(taskId, "打开标签页失败: " + e.message);
@@ -118,8 +159,14 @@ async function finishTask(taskId, data, error) {
   clearTimeout(task.timer);
   activeTasks.delete(taskId);
 
-  // 关闭标签页
-  try { chrome.tabs.remove(task.tabId); } catch (e) {}
+  // 关闭标签页/窗口
+  try {
+    if (task.windowId) {
+      await chrome.windows.remove(task.windowId);
+    } else {
+      await chrome.tabs.remove(task.tabId);
+    }
+  } catch (e) {}
 
   if (error) {
     reportComplete(taskId, error);
@@ -208,7 +255,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // 来自 popup 的配置操作
   if (msg.type === "getConfig") {
-    sendResponse({ wsUrl, apiKey });
+    sendResponse({ wsUrl, apiKey, incognitoAllowed });
     return;
   }
 
@@ -238,6 +285,7 @@ function getState() {
     completed: stats.completed,
     failed: stats.failed,
     credits: stats.credits,
+    incognitoAllowed,
   };
 }
 

@@ -43,6 +43,9 @@ chrome.runtime.sendMessage({ type: "getConfig" }, (cfg) => {
   if (cfg) {
     document.getElementById("wsUrl").value = cfg.wsUrl || "";
     document.getElementById("apiKey").value = cfg.apiKey || "";
+    if (!cfg.incognitoAllowed) {
+      document.getElementById("privacyWarn").style.display = "block";
+    }
   }
 });
 
