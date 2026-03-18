@@ -1,6 +1,44 @@
 # OpenCrawl
 
-积分制分布式爬虫平台。使用者付积分调 API，Worker（Chrome 扩展）贡献算力赚积分，数据通过 Cloudflare R2 中转。
+**分布式浏览器渲染服务。** Worker 贡献真实 Chrome 浏览器，使用者付积分即可爬取任意 JS 渲染页面。
+
+专为 [OpenClaw](https://github.com/browser-use/web-ui) 等运行在无头 VPS 上、缺少真实浏览器环境的 AI Agent 工具而生。
+
+[English](README.md)
+
+---
+
+## 为什么需要 OpenCrawl？
+
+AI Agent 和爬虫工具跑在 VPS/云服务器上时，往往无法渲染 JavaScript 页面——因为没有真实浏览器。Puppeteer、Playwright 等方案需要 4GB+ 内存，部署维护成本高。
+
+OpenCrawl 通过**众包真实 Chrome 浏览器**解决这个问题：
+
+- 任何人安装 Chrome 扩展即可成为 **Worker**
+- Worker 每完成一个页面渲染任务获得积分
+- 使用者通过简单的 API 调用消费积分爬取任意 URL
+- 结果存储在 **Cloudflare R2**（零出口流量费）
+- Worker 的 Cookie 和登录状态通过**无痕窗口完全隔离**
+
+## OpenClaw 集成
+
+OpenCrawl 专为 [OpenClaw](https://github.com/browser-use/web-ui) 在无头 VPS 上的部署场景设计。
+
+无需在服务器上安装 Chromium + Playwright（4GB+ 内存，配置复杂），直接调用 OpenCrawl API：
+
+```python
+import requests
+
+# 通过真实 Chrome 浏览器获取任意 JS 渲染页面
+res = requests.post("https://your-opencrawl-server/api/crawl",
+    headers={"Authorization": "Bearer ak_your_key"},
+    json={"url": "https://example.com", "selector": ".main-content"})
+
+data = res.json()
+# data["downloadUrl"] → 从 R2 下载渲染后的页面内容
+```
+
+让你的 VPS Agent 拥有**真实浏览器池**，无需任何本地浏览器安装。
 
 ## 架构
 
@@ -42,7 +80,10 @@
 - **用户面板** — 查看积分余额、API Key、使用示例
 - **Dashboard** — 实时监控 Worker 连接、任务状态
 - **域名负载均衡** — 同一域名分散到不同 Worker
+- **隐私保护** — 爬取在无痕窗口中进行，完全隔离 Worker 的 Cookie 和登录态
+- **URL 黑名单** — 屏蔽 localhost、内网 IP、云 metadata、危险端口
 - **R2 自动过期** — 结果文件 1 天自动删除，不占存储
+- **一键注册** — 首页注册即送 100 积分
 
 ## 技术栈
 
