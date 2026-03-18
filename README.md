@@ -67,15 +67,17 @@ This gives your VPS-hosted agent access to a **pool of real browsers** without a
 
 ## Features
 
-- **API Crawling** — Send a URL, get back rendered page text + R2 download link
+- **Dual Crawl Modes** — `lite` (no images/CSS, 0.1 credit, ~3s) and `full` (complete render, 1 credit, ~8s)
+- **Search API** — Multi-engine search (DuckDuckGo + Google + Bing + Baidu), Brave Search API compatible
 - **Credit System** — Users spend credits, Workers earn credits
 - **API Key Auth** — Each user gets a unique API key
 - **Admin Panel** — Create users, recharge credits, view stats
 - **User Panel** — Check balance, view API key, usage examples
 - **Dashboard** — Real-time monitoring of Workers, tasks, history
-- **Domain Load Balancing** — Tasks distributed across Workers per domain
-- **Privacy Protection** — Crawling happens in incognito windows, isolating Worker cookies
+- **Worker Concurrency** — Single Worker handles multiple tasks in parallel (multi-tab)
+- **Privacy Protection** — Crawling in incognito windows, isolating Worker cookies
 - **URL Blacklist** — Blocks localhost, internal IPs, cloud metadata, dangerous ports
+- **Version Control** — Outdated Workers are rejected and prompted to update
 - **Auto Cleanup** — R2 objects expire after 1 day, zero storage cost
 - **One-Click Registration** — Sign up on the homepage, get 100 free credits
 
@@ -135,14 +137,17 @@ Or just visit `http://localhost:9877` and click **Register**.
 ### Crawl a Page
 
 ```bash
-# POST
+# Lite mode (no images/CSS, faster, 0.1 credit)
 curl -X POST http://your-server:9877/api/crawl \
   -H "Authorization: Bearer ak_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "selector": ".article"}'
+  -d '{"url": "https://example.com", "mode": "lite"}'
 
-# GET (simpler)
-curl "http://your-server:9877/api/crawl?url=https://example.com&key=ak_xxx"
+# Full mode (complete render, 1 credit)
+curl -X POST http://your-server:9877/api/crawl \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "mode": "full", "selector": ".article"}'
 ```
 
 Response:
@@ -150,8 +155,42 @@ Response:
 {
   "success": true,
   "url": "https://example.com",
+  "mode": "lite",
   "r2Key": "tasks/xxx.json",
   "downloadUrl": "https://...signed-r2-url..."
+}
+```
+
+### Search (Brave Search API Compatible)
+
+```bash
+# Lite search — DuckDuckGo only (0.1 credit)
+curl -X POST http://your-server:9877/api/search \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"q": "python tutorial", "mode": "lite"}'
+
+# Full search — DuckDuckGo + Google + Bing + Baidu parallel (3 credits, ~20-30 results)
+curl -X POST http://your-server:9877/api/search \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"q": "python tutorial", "mode": "full"}'
+```
+
+Response (Brave Search compatible):
+```json
+{
+  "success": true,
+  "query": "python tutorial",
+  "type": "search",
+  "mode": "full",
+  "engines": ["duckduckgo", "bing", "google", "baidu"],
+  "web": {
+    "results": [
+      {"title": "...", "url": "https://...", "description": "...", "source": "duckduckgo"},
+      {"title": "...", "url": "https://...", "description": "...", "source": "google"}
+    ]
+  }
 }
 ```
 
@@ -185,6 +224,15 @@ curl -X POST http://your-server:9877/api/admin/recharge \
   -H "Content-Type: application/json" \
   -d '{"apiKey": "ak_xxx", "credits": 50}'
 ```
+
+## Pricing
+
+| API | Mode | Credits | Speed | Description |
+|-----|------|---------|-------|-------------|
+| `/api/crawl` | `lite` | 0.1 | ~3s | No images/CSS, fast extraction |
+| `/api/crawl` | `full` | 1.0 | ~8s | Full JS render |
+| `/api/search` | `lite` | 0.1 | ~5s | DuckDuckGo single engine |
+| `/api/search` | `full` | 3.0 | ~10s | 4 engines parallel, 20-30 results |
 
 ## Web Pages
 
@@ -222,6 +270,7 @@ With 30KB average per task and 1-day auto-expiry, **up to 30,000 tasks/day for f
 - **Signed URLs** — R2 upload/download URLs are time-limited (10min upload, 1hr download)
 - **Upload Verification** — Server verifies R2 upload via `HEAD` before confirming task completion
 - **Heartbeat Detection** — Stale Worker connections are automatically cleaned up after 30s
+- **Worker Version Control** — Outdated Workers are rejected with update prompt, no tasks assigned
 
 ## License
 

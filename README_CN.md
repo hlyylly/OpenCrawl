@@ -73,15 +73,17 @@ data = res.json()
 
 ## 功能
 
-- **API 爬取** — 发送 URL，返回渲染后的页面文本 + R2 下载链接
+- **双爬取模式** — `lite`（不加载图片/CSS，0.1 积分，~3 秒）和 `full`（完整渲染，1 积分，~8 秒）
+- **Search API** — 多引擎搜索（DuckDuckGo + Google + Bing + Baidu），兼容 Brave Search API 格式
 - **积分系统** — 使用者消费积分，Worker 赚取积分
 - **API Key 认证** — 每个用户独立的 API Key
 - **管理后台** — 创建用户、充值积分、查看统计
 - **用户面板** — 查看积分余额、API Key、使用示例
 - **Dashboard** — 实时监控 Worker 连接、任务状态
-- **域名负载均衡** — 同一域名分散到不同 Worker
+- **Worker 并发** — 单 Worker 多标签页并行处理任务
 - **隐私保护** — 爬取在无痕窗口中进行，完全隔离 Worker 的 Cookie 和登录态
 - **URL 黑名单** — 屏蔽 localhost、内网 IP、云 metadata、危险端口
+- **版本控制** — 旧版 Worker 自动拒绝并提示更新
 - **R2 自动过期** — 结果文件 1 天自动删除，不占存储
 - **一键注册** — 首页注册即送 100 积分
 
@@ -178,61 +180,89 @@ OpenCrawl/
 
 ## API
 
-### 爬取页面（需认证）
+### 爬取页面
 
 ```bash
+# Lite 模式（不加载图片/CSS，更快，0.1 积分）
 curl -X POST http://your-server:9877/api/crawl \
   -H "Authorization: Bearer ak_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "selector": ".article"}'
+  -d '{"url": "https://example.com", "mode": "lite"}'
+
+# Full 模式（完整渲染，1 积分）
+curl -X POST http://your-server:9877/api/crawl \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "mode": "full", "selector": ".article"}'
 ```
 
-响应：
+### 搜索（兼容 Brave Search API）
+
+```bash
+# Lite 搜索 — 仅 DuckDuckGo（0.1 积分）
+curl -X POST http://your-server:9877/api/search \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"q": "python 教程", "mode": "lite"}'
+
+# Full 搜索 — DDG + Google + Bing + Baidu 四引擎并行（3 积分，20-30 条去重结果）
+curl -X POST http://your-server:9877/api/search \
+  -H "Authorization: Bearer ak_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"q": "python 教程", "mode": "full"}'
+```
+
+响应（Brave Search 兼容格式）：
 ```json
 {
   "success": true,
-  "url": "https://example.com",
-  "r2Key": "tasks/xxx.json",
-  "downloadUrl": "https://...签名下载链接..."
+  "query": "python 教程",
+  "type": "search",
+  "mode": "full",
+  "engines": ["duckduckgo", "bing", "google", "baidu"],
+  "web": {
+    "results": [
+      {"title": "...", "url": "https://...", "description": "...", "source": "duckduckgo"},
+      {"title": "...", "url": "https://...", "description": "...", "source": "google"}
+    ]
+  }
 }
 ```
 
-### 查询积分
+### 其他 API
 
 ```bash
-curl http://your-server:9877/api/balance \
-  -H "Authorization: Bearer ak_xxx"
-```
+# 查询积分
+curl http://your-server:9877/api/balance -H "Authorization: Bearer ak_xxx"
 
-### 平台状态（公开）
-
-```bash
+# 平台状态（公开）
 curl http://your-server:9877/api/status
-```
 
-### 管理员 — 创建用户
-
-```bash
+# 管理员 — 创建用户
 curl -X POST http://your-server:9877/api/admin/create-key \
-  -H "Authorization: Bearer your_admin_key" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer admin_key" \
   -d '{"name": "用户名", "credits": 100}'
-```
 
-### 管理员 — 充值积分
-
-```bash
+# 管理员 — 充值积分
 curl -X POST http://your-server:9877/api/admin/recharge \
-  -H "Authorization: Bearer your_admin_key" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer admin_key" \
   -d '{"apiKey": "ak_xxx", "credits": 50}'
 ```
+
+## 积分价格
+
+| API | 模式 | 积分 | 速度 | 说明 |
+|-----|------|------|------|------|
+| `/api/crawl` | `lite` | 0.1 | ~3s | 不加载图片/CSS，快速提取 |
+| `/api/crawl` | `full` | 1.0 | ~8s | 完整 JS 渲染 |
+| `/api/search` | `lite` | 0.1 | ~5s | DuckDuckGo 单引擎 |
+| `/api/search` | `full` | 3.0 | ~10s | 四引擎并行，20-30 条去重 |
 
 ## 页面
 
 | 路径 | 说明 |
 |------|------|
-| `/` | Dashboard 监控面板 |
+| `/` | Dashboard 监控面板 + 一键注册 |
 | `/admin` | 管理后台（需 Admin Key） |
 | `/user` | 用户面板（需 API Key） |
 
