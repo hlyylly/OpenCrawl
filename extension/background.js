@@ -120,8 +120,9 @@ function connect() {
       addLog("warn", "未启用无痕模式权限，爬取将携带你的 Cookie（建议在扩展设置中开启「在无痕模式下启用」）");
     }
 
-    // 注册 Worker（发送 ID + API Key）
-    ws.send(JSON.stringify({ type: "register", workerId, apiKey: apiKey || null }));
+    // 注册 Worker（发送 ID + 版本 + API Key）
+    const manifest = chrome.runtime.getManifest();
+    ws.send(JSON.stringify({ type: "register", workerId, version: manifest.version, apiKey: apiKey || null }));
     broadcastState();
   };
 
@@ -130,6 +131,12 @@ function connect() {
       const msg = JSON.parse(event.data);
       if (msg.type === "task") {
         handleTask(msg);
+      } else if (msg.type === "update_required") {
+        addLog("error", `版本过低 (${msg.current})，需要 ${msg.required}+，请更新扩展`);
+        connected = false;
+        ws.onclose = null; // 不触发重连
+        broadcastState();
+        ws.close();
       }
     } catch (e) {
       console.error("[OpenCrawl] 消息解析错误:", e);

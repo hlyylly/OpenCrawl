@@ -25,6 +25,15 @@ TASK_TIMEOUT = 60
 MAX_HISTORY = 500
 ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_OpenCrawl")
 CREDITS_PER_TASK = 1
+MIN_WORKER_VERSION = "1.2.0"  # 最低 Worker 版本
+
+
+def version_gte(v: str, min_v: str) -> bool:
+    """比较版本号 v >= min_v"""
+    try:
+        return tuple(int(x) for x in v.split(".")) >= tuple(int(x) for x in min_v.split("."))
+    except Exception:
+        return False
 CREDITS_LITE = 0.1  # lite 模式积分
 CREDITS_SEARCH_FULL = 3  # full search 积分（多引擎并行）
 REGISTER_CREDITS = 100  # 注册赠送积分
@@ -405,7 +414,22 @@ async def websocket_endpoint(ws: WebSocket):
             msg = json.loads(data)
 
             if msg.get("type") == "register":
+                client_version = msg.get("version", "0.0.0")
+
+                # 版本检查
+                if not version_gte(client_version, MIN_WORKER_VERSION):
+                    print(f"[OpenCrawl] Worker {worker_id} 版本过低: {client_version} < {MIN_WORKER_VERSION}")
+                    await ws.send_text(json.dumps({
+                        "type": "update_required",
+                        "current": client_version,
+                        "required": MIN_WORKER_VERSION,
+                    }))
+                    workers.pop(ws, None)
+                    await broadcast_status()
+                    continue
+
                 workers[ws]["api_key"] = msg.get("apiKey")
+                workers[ws]["version"] = client_version
                 client_worker_id = msg.get("workerId")
                 if client_worker_id:
                     workers[ws]["client_id"] = client_worker_id
