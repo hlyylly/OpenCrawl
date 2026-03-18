@@ -593,7 +593,17 @@ async def api_crawl_get(request: Request, url: str = None, selector: str = None,
     return {"success": True, "url": url, "mode": mode, "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
 
 
-# ============ Search API ============
+# ============ Search API (走 Worker) ============
+def _build_search_url(q: str, engine: str) -> str:
+    """构造搜索引擎 URL"""
+    from urllib.parse import quote_plus
+    encoded = quote_plus(q)
+    if engine == "bing":
+        return f"https://www.bing.com/search?q={encoded}&setlang=en"
+    else:
+        return f"https://html.duckduckgo.com/html/?q={encoded}"
+
+
 @app.post("/api/search")
 async def api_search_post(request: Request):
     key, user = authenticate(request)
@@ -605,78 +615,63 @@ async def api_search_post(request: Request):
     if not q:
         return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
 
-    limit = min(body.get("limit", 10), 20)
     engine = body.get("engine", "duckduckgo")
+    search_url = _build_search_url(q, engine)
 
-    # 搜索
-    if engine == "bing":
-        results = await search_bing(q, limit)
-    else:
-        results = await search_ddg(q, limit)
-        if not results:
-            # DDG 失败，降级到 Bing
-            results = await search_bing(q, limit)
+    # 用 lite 模式走 Worker 抓搜索页面，selector=__search__ 触发 content.js 搜索解析
+    result = await crawl(search_url, "__search__", key, "lite")
 
-    # 上传到 R2
-    task_id = uuid.uuid4().hex
-    r2_key = f"tasks/{task_id}.json"
-    payload = json.dumps({
-        "query": q, "engine": engine, "results": results,
-        "count": len(results), "timestamp": time.time(),
-    }, ensure_ascii=False).encode()
-    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
-    download_url = get_download_url(r2_key)
+    # 从 R2 下载并解析 Worker 返回的结构化数据
+    try:
+        obj = r2.get_object(Bucket=R2_BUCKET, Key=result["r2Key"])
+        raw = json.loads(obj["Body"].read())
+        data_str = raw.get("data", "")
+        # content.js 会返回 JSON 字符串（搜索结果）
+        search_results = json.loads(data_str) if data_str.startswith("[") else []
+    except Exception:
+        search_results = []
 
-    # 扣积分
-    users = load_users()
-    if key in users:
-        users[key]["credits"] -= CREDITS_LITE
-        users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
-        save_users(users)
-
+    # Brave Search 兼容格式
     return {
-        "success": True, "query": q, "engine": engine,
-        "count": len(results), "results": results,
-        "r2Key": r2_key, "downloadUrl": download_url,
+        "success": True,
+        "query": q,
+        "type": "search",
+        "web": {
+            "results": search_results[:20],
+        },
+        "r2Key": result["r2Key"],
+        "downloadUrl": result["downloadUrl"],
     }
 
 
 @app.get("/api/search")
-async def api_search_get(request: Request, q: str = None, limit: int = 10, engine: str = "duckduckgo"):
+async def api_search_get(request: Request, q: str = None, engine: str = "duckduckgo"):
     key, user = authenticate(request)
     if user["credits"] < CREDITS_LITE:
         return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
     if not q:
         return JSONResponse({"success": False, "error": "缺少搜索词 q"}, 400)
 
-    limit = min(limit, 20)
+    search_url = _build_search_url(q, engine)
+    result = await crawl(search_url, "__search__", key, "lite")
 
-    if engine == "bing":
-        results = await search_bing(q, limit)
-    else:
-        results = await search_ddg(q, limit)
-        if not results:
-            results = await search_bing(q, limit)
-
-    task_id = uuid.uuid4().hex
-    r2_key = f"tasks/{task_id}.json"
-    payload = json.dumps({
-        "query": q, "engine": engine, "results": results,
-        "count": len(results), "timestamp": time.time(),
-    }, ensure_ascii=False).encode()
-    r2.put_object(Bucket=R2_BUCKET, Key=r2_key, Body=payload, ContentType="application/json")
-    download_url = get_download_url(r2_key)
-
-    users = load_users()
-    if key in users:
-        users[key]["credits"] -= CREDITS_LITE
-        users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
-        save_users(users)
+    try:
+        obj = r2.get_object(Bucket=R2_BUCKET, Key=result["r2Key"])
+        raw = json.loads(obj["Body"].read())
+        data_str = raw.get("data", "")
+        search_results = json.loads(data_str) if data_str.startswith("[") else []
+    except Exception:
+        search_results = []
 
     return {
-        "success": True, "query": q, "engine": engine,
-        "count": len(results), "results": results,
-        "r2Key": r2_key, "downloadUrl": download_url,
+        "success": True,
+        "query": q,
+        "type": "search",
+        "web": {
+            "results": search_results[:20],
+        },
+        "r2Key": result["r2Key"],
+        "downloadUrl": result["downloadUrl"],
     }
 
 
