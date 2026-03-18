@@ -2,10 +2,11 @@
 chrome.runtime.sendMessage({ type: "getTask" }, (response) => {
   if (!response) return; // 普通浏览，不做任何事
 
-  const { taskId, selector } = response;
-  console.log(`[OpenCrawl] 任务 ${taskId.slice(0, 8)}，等待页面渲染...`);
+  const { taskId, selector, mode } = response;
+  const isLite = mode === "lite";
+  console.log(`[OpenCrawl] 任务 ${taskId.slice(0, 8)} ${isLite ? "(lite)" : ""}，等待页面渲染...`);
 
-  waitForRender(() => {
+  waitForRender(isLite, () => {
     console.log("[OpenCrawl] 页面就绪，开始提取...");
     const result = extract(selector);
 
@@ -22,10 +23,14 @@ chrome.runtime.sendMessage({ type: "getTask" }, (response) => {
   });
 });
 
-function waitForRender(callback) {
+function waitForRender(isLite, callback) {
   let mutationTimer = null;
   let settled = false;
-  const MAX_WAIT = 15000;
+
+  // Lite 模式：更短的等待时间
+  const STABLE_DELAY = isLite ? 500 : 2000;   // DOM 稳定等待
+  const INITIAL_WAIT = isLite ? 1000 : 3000;   // 初始等待
+  const MAX_WAIT = isLite ? 8000 : 15000;      // 兜底超时
 
   function settle() {
     if (settled) return;
@@ -37,17 +42,17 @@ function waitForRender(callback) {
 
   const observer = new MutationObserver(() => {
     if (mutationTimer) clearTimeout(mutationTimer);
-    mutationTimer = setTimeout(settle, 2000); // DOM 稳定 2 秒
+    mutationTimer = setTimeout(settle, STABLE_DELAY);
   });
 
   if (document.body) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // 初始等 3 秒
-  mutationTimer = setTimeout(settle, 3000);
+  // 初始等待
+  mutationTimer = setTimeout(settle, INITIAL_WAIT);
 
-  // 兜底 15 秒
+  // 兜底
   setTimeout(settle, MAX_WAIT);
 }
 

@@ -436,13 +436,14 @@ async def websocket_endpoint(ws: WebSocket):
                         worker["failed"] = worker.get("failed", 0) + 1
                         task["future"].set_result({"error": "R2 文件验证失败"})
                     else:
-                        # 积分结算
+                        # 积分结算（lite 0.1，full 1）
+                        cost = CREDITS_LITE if task.get("mode") == "lite" else CREDITS_PER_TASK
                         users = load_users()
                         if task["api_key"] in users:
-                            users[task["api_key"]]["credits"] -= CREDITS_PER_TASK
+                            users[task["api_key"]]["credits"] -= cost
                             users[task["api_key"]]["totalUsed"] = users[task["api_key"]].get("totalUsed", 0) + 1
                         if worker.get("api_key") and worker["api_key"] in users:
-                            users[worker["api_key"]]["credits"] += CREDITS_PER_TASK
+                            users[worker["api_key"]]["credits"] += cost
                             users[worker["api_key"]]["totalEarned"] = users[worker["api_key"]].get("totalEarned", 0) + 1
                         save_users(users)
 
@@ -481,10 +482,10 @@ def select_worker(target_domain: str):
     return best
 
 
-async def dispatch(ws: WebSocket, task_id, url, selector, upload_url):
+async def dispatch(ws: WebSocket, task_id, url, selector, upload_url, mode="full"):
     await ws.send_text(json.dumps({
         "type": "task", "taskId": task_id,
-        "url": url, "selector": selector, "uploadUrl": upload_url,
+        "url": url, "selector": selector, "uploadUrl": upload_url, "mode": mode,
     }))
     worker = workers.get(ws)
     if worker:
@@ -511,7 +512,7 @@ async def broadcast_status():
             pass
 
 
-async def crawl(url: str, selector: str | None, api_key: str):
+async def crawl(url: str, selector: str | None, api_key: str, mode: str = "full"):
     # URL 安全检查
     blocked = is_url_blocked(url)
     if blocked:
@@ -529,16 +530,19 @@ async def crawl(url: str, selector: str | None, api_key: str):
     upload_url, r2_key = get_upload_url(task_id)
     future = asyncio.get_event_loop().create_future()
 
+    timeout = 20 if mode == "lite" else TASK_TIMEOUT
+
     tasks[task_id] = {
         "url": url, "selector": selector,
         "r2_key": r2_key, "api_key": api_key,
         "start_time": time.time(), "future": future,
+        "mode": mode,
     }
 
-    await dispatch(ws, task_id, url, selector, upload_url)
+    await dispatch(ws, task_id, url, selector, upload_url, mode)
 
     try:
-        result = await asyncio.wait_for(future, timeout=TASK_TIMEOUT)
+        result = await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
         tasks.pop(task_id, None)
         raise HTTPException(504, detail="任务超时")
@@ -564,86 +568,29 @@ async def api_crawl_post(request: Request):
         return JSONResponse({"success": False, "error": "缺少 url"}, 400)
 
     url = body["url"]
-    mode = body.get("mode", "auto")  # auto / lite / full
+    mode = body.get("mode", "full")  # lite / full
     selector = body.get("selector")
 
-    # URL 安全检查
-    blocked = is_url_blocked(url)
-    if blocked:
-        return JSONResponse({"success": False, "error": blocked}, 403)
-
-    # 积分检查
     cost = CREDITS_LITE if mode == "lite" else CREDITS_PER_TASK
-    if mode == "auto":
-        cost = CREDITS_LITE  # auto 先尝试 lite
     if user["credits"] < cost:
         return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
 
-    # Lite 模式
-    if mode in ("lite", "auto"):
-        text = await lite_crawl(url, selector)
-        if text:
-            result = await upload_lite_result(url, text)
-            # 扣积分
-            users = load_users()
-            if key in users:
-                users[key]["credits"] -= CREDITS_LITE
-                users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
-                save_users(users)
-            return {
-                "success": True, "url": url, "mode": "lite",
-                "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"],
-                "length": len(text),
-            }
-        if mode == "lite":
-            return JSONResponse({"success": False, "error": "Lite 模式无法获取内容（可能是 JS 渲染页面），请使用 mode=full"}, 422)
-        # auto 模式降级到 full
-        if user["credits"] < CREDITS_PER_TASK:
-            return JSONResponse({"success": False, "error": "Lite 失败需降级 Full 模式，但积分不足", "credits": user["credits"]}, 402)
-
-    # Full 模式
-    result = await crawl(url, selector, key)
-    return {"success": True, "url": url, "mode": "full", "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
+    result = await crawl(url, selector, key, mode)
+    return {"success": True, "url": url, "mode": mode, "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
 
 
 @app.get("/api/crawl")
-async def api_crawl_get(request: Request, url: str = None, selector: str = None, mode: str = "auto"):
+async def api_crawl_get(request: Request, url: str = None, selector: str = None, mode: str = "full"):
     key, user = authenticate(request)
     if not url:
         return JSONResponse({"success": False, "error": "缺少 url"}, 400)
 
-    # 转发到 POST 逻辑
-    blocked = is_url_blocked(url)
-    if blocked:
-        return JSONResponse({"success": False, "error": blocked}, 403)
-
     cost = CREDITS_LITE if mode == "lite" else CREDITS_PER_TASK
-    if mode == "auto":
-        cost = CREDITS_LITE
     if user["credits"] < cost:
         return JSONResponse({"success": False, "error": "积分不足", "credits": user["credits"]}, 402)
 
-    if mode in ("lite", "auto"):
-        text = await lite_crawl(url, selector)
-        if text:
-            result = await upload_lite_result(url, text)
-            users = load_users()
-            if key in users:
-                users[key]["credits"] -= CREDITS_LITE
-                users[key]["totalUsed"] = users[key].get("totalUsed", 0) + 1
-                save_users(users)
-            return {
-                "success": True, "url": url, "mode": "lite",
-                "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"],
-                "length": len(text),
-            }
-        if mode == "lite":
-            return JSONResponse({"success": False, "error": "Lite 模式无法获取内容"}, 422)
-        if user["credits"] < CREDITS_PER_TASK:
-            return JSONResponse({"success": False, "error": "Lite 失败需降级 Full 模式，但积分不足"}, 402)
-
-    result = await crawl(url, selector, key)
-    return {"success": True, "url": url, "mode": "full", "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
+    result = await crawl(url, selector, key, mode)
+    return {"success": True, "url": url, "mode": mode, "r2Key": result["r2Key"], "downloadUrl": result["downloadUrl"]}
 
 
 # ============ Search API ============

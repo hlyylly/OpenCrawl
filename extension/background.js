@@ -143,30 +143,78 @@ setInterval(() => {
   }
 }, 10000);
 
+// ============ Lite 模式资源屏蔽 ============
+const LITE_RULE_ID_BASE = 100000;
+let liteRuleCounter = 0;
+
+async function addLiteRules(tabId) {
+  const ruleId = LITE_RULE_ID_BASE + (liteRuleCounter++ % 50000);
+  const rules = [
+    {
+      id: ruleId,
+      priority: 1,
+      action: { type: "block" },
+      condition: {
+        tabIds: [tabId],
+        resourceTypes: ["image", "font", "media", "stylesheet"],
+      },
+    },
+  ];
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      addRules: rules,
+      removeRuleIds: [ruleId],
+    });
+  } catch (e) {
+    console.warn("[OpenCrawl] Failed to set lite rules:", e);
+  }
+  return ruleId;
+}
+
+async function removeLiteRules(ruleId) {
+  if (!ruleId) return;
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+    });
+  } catch (e) {}
+}
+
 // ============ 任务处理 ============
 async function handleTask(task) {
-  const { taskId, url, selector, uploadUrl } = task;
-  console.log(`[OpenCrawl] 收到任务 [${taskId.slice(0, 8)}] -> ${url}`);
-  addLog("info", `收到任务 -> ${url}`);
+  const { taskId, url, selector, uploadUrl, mode } = task;
+  const isLite = mode === "lite";
+  const timeout = isLite ? 15000 : TASK_TIMEOUT;
+
+  console.log(`[OpenCrawl] 收到任务 [${taskId.slice(0, 8)}] ${isLite ? "(lite)" : ""} -> ${url}`);
+  addLog("info", `${isLite ? "[lite] " : ""}收到任务 -> ${url}`);
 
   try {
     let tabId;
+    let liteRuleId = null;
 
     if (incognitoAllowed) {
-      // 复用无痕窗口，只创建标签页
       const winId = await getIncognitoWindow();
-      const tab = await chrome.tabs.create({ windowId: winId, url, active: false });
+      const tab = await chrome.tabs.create({ windowId: winId, url: "about:blank", active: false });
       tabId = tab.id;
     } else {
-      const tab = await chrome.tabs.create({ url, active: false });
+      const tab = await chrome.tabs.create({ url: "about:blank", active: false });
       tabId = tab.id;
     }
 
+    // Lite 模式：屏蔽图片/字体/媒体/CSS
+    if (isLite) {
+      liteRuleId = await addLiteRules(tabId);
+    }
+
+    // 导航到目标 URL
+    await chrome.tabs.update(tabId, { url });
+
     const timer = setTimeout(() => {
       finishTask(taskId, null, "渲染超时");
-    }, TASK_TIMEOUT);
+    }, timeout);
 
-    activeTasks.set(taskId, { tabId, url, selector, uploadUrl, timer });
+    activeTasks.set(taskId, { tabId, url, selector, uploadUrl, timer, liteRuleId, mode });
     broadcastState();
   } catch (e) {
     reportComplete(taskId, "打开标签页失败: " + e.message);
@@ -182,7 +230,8 @@ async function finishTask(taskId, data, error) {
   clearTimeout(task.timer);
   activeTasks.delete(taskId);
 
-  // 关闭标签页（无痕窗口保留复用）
+  // 清理 lite 规则 + 关闭标签页
+  await removeLiteRules(task.liteRuleId);
   try {
     await chrome.tabs.remove(task.tabId);
   } catch (e) {}
@@ -249,7 +298,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!tabId) { sendResponse(null); return; }
     for (const [taskId, task] of activeTasks) {
       if (task.tabId === tabId) {
-        sendResponse({ taskId, selector: task.selector });
+        sendResponse({ taskId, selector: task.selector, mode: task.mode || "full" });
         return;
       }
     }
