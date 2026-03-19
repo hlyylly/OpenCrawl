@@ -129,8 +129,18 @@
     </div>
 
     <div class="example-box">
-      <h3>使用示例</h3>
-      <div class="code" id="codeExample"></div>
+      <h3>Crawl API — 爬取网页</h3>
+      <div class="code" id="codeCrawl"></div>
+    </div>
+
+    <div class="example-box">
+      <h3>Search API — 搜索</h3>
+      <div class="code" id="codeSearch"></div>
+    </div>
+
+    <div class="example-box">
+      <h3>积分价格</h3>
+      <div class="code" id="codePricing"></div>
     </div>
 
     <div class="section">
@@ -172,20 +182,58 @@
     document.getElementById('tokenDisplay').textContent = userKey;
 
     const host = location.origin;
-    document.getElementById('codeExample').innerHTML =
-`<span class="comment"># cURL</span>
+    const k = esc(userKey);
+
+    document.getElementById('codeCrawl').innerHTML =
+`<span class="comment"># cURL — lite 模式 (不加载图片/CSS, 更快)</span>
+curl ${esc(host)}/api/crawl?url=https://example.com&mode=lite \\
+  -H <span class="str">"Authorization: Bearer ${k}"</span>
+
+<span class="comment"># cURL — full 模式 (完整渲染)</span>
 curl -X POST ${esc(host)}/api/crawl \\
-  -H <span class="str">"Authorization: Bearer ${esc(userKey)}"</span> \\
+  -H <span class="str">"Authorization: Bearer ${k}"</span> \\
   -H <span class="str">"Content-Type: application/json"</span> \\
-  -d <span class="str">'{"url": "https://example.com"}'</span>
+  -d <span class="str">'{"url": "https://example.com", "mode": "full"}'</span>
 
 <span class="comment"># Python</span>
 <span class="key">import</span> requests
 res = requests.post(<span class="str">"${esc(host)}/api/crawl"</span>,
-    headers={<span class="str">"Authorization"</span>: <span class="str">"Bearer ${esc(userKey)}"</span>},
-    json={<span class="str">"url"</span>: <span class="str">"https://example.com"</span>})
+    headers={<span class="str">"Authorization"</span>: <span class="str">"Bearer ${k}"</span>},
+    json={<span class="str">"url"</span>: <span class="str">"https://example.com"</span>, <span class="str">"mode"</span>: <span class="str">"lite"</span>})
 data = res.json()
-<span class="comment"># data["downloadUrl"] → 下载爬取结果</span>`;
+<span class="comment"># data["downloadUrl"] → 下载爬取结果 (HTML)</span>
+<span class="comment"># data["mode"]        → "lite" 或 "full"</span>`;
+
+    document.getElementById('codeSearch').innerHTML =
+`<span class="comment"># lite — 仅 DuckDuckGo</span>
+curl ${esc(host)}/api/search?q=python+web+scraping&mode=lite \\
+  -H <span class="str">"Authorization: Bearer ${k}"</span>
+
+<span class="comment"># full — 四引擎并行 (DDG + Google + Bing + Baidu)</span>
+curl -X POST ${esc(host)}/api/search \\
+  -H <span class="str">"Authorization: Bearer ${k}"</span> \\
+  -H <span class="str">"Content-Type: application/json"</span> \\
+  -d <span class="str">'{"q": "python web scraping", "mode": "full"}'</span>
+
+<span class="comment"># Python</span>
+<span class="key">import</span> requests
+res = requests.post(<span class="str">"${esc(host)}/api/search"</span>,
+    headers={<span class="str">"Authorization"</span>: <span class="str">"Bearer ${k}"</span>},
+    json={<span class="str">"q"</span>: <span class="str">"python web scraping"</span>, <span class="str">"mode"</span>: <span class="str">"full"</span>})
+data = res.json()
+<span class="comment"># data["results"]     → [{title, url, description}, ...]</span>
+<span class="comment"># data["count"]       → 去重后结果数</span>
+<span class="comment"># data["downloadUrl"] → 完整 JSON 下载链接</span>`;
+
+    document.getElementById('codePricing').innerHTML =
+`<span class="comment">API            Mode    积分</span>
+───────────────────────────────
+/api/crawl     lite    <span class="str">0.1</span>   不加载图片/CSS, ~3s
+/api/crawl     full    <span class="str">1</span>     完整渲染, ~8s
+/api/search    lite    <span class="str">0.1</span>   仅 DuckDuckGo
+/api/search    full    <span class="str">3</span>     四引擎并行, 20-30 条去重结果
+/api/balance   —       <span class="str">免费</span>  查询积分余额
+/api/status    —       <span class="str">免费</span>  平台状态 (Worker 数等)`;
   }
 
   async function loadHistory() {
