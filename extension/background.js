@@ -17,7 +17,7 @@ let incognitoWindowId = null; // 复用的无痕窗口
 // ============ 配置管理 ============
 async function loadConfig() {
   const cfg = await chrome.storage.local.get(["wsUrl", "apiKey", "workerId"]);
-  wsUrl = cfg.wsUrl || "ws://localhost:9877/ws";
+  wsUrl = cfg.wsUrl || "ws://localhost:9878/ws";
   if (cfg.apiKey) apiKey = cfg.apiKey;
 
   // 持久化 Worker ID，Service Worker 重启后保持同一个 ID
@@ -172,11 +172,15 @@ function reconnect() {
   connect();
 }
 
-setInterval(() => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "heartbeat" }));
+// 用 chrome.alarms 发心跳（Service Worker 休眠后 setInterval 会停，alarm 不会）
+chrome.alarms.create("heartbeat", { periodInMinutes: 0.25 }); // 每 15 秒
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "heartbeat") {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "heartbeat" }));
+    }
   }
-}, 10000);
+});
 
 // ============ Lite 模式资源屏蔽 ============
 const LITE_RULE_ID_BASE = 100000;
@@ -257,7 +261,7 @@ async function handleTask(task) {
   }
 }
 
-// Content script 返回提取结果后，上传 R2
+// Content script 返回提取结果后，上传 R2 或直接回传（本地模式）
 async function finishTask(taskId, data, error) {
   const task = activeTasks.get(taskId);
   if (!task) return;
@@ -275,8 +279,13 @@ async function finishTask(taskId, data, error) {
     reportComplete(taskId, error);
     stats.failed++;
     addLog("error", `[${taskId.slice(0, 8)}] ${error}`);
+  } else if (!task.uploadUrl) {
+    // 本地模式：无 uploadUrl，数据直接通过 WebSocket 回传
+    reportComplete(taskId, null, data);
+    stats.completed++;
+    addLog("success", `[${taskId.slice(0, 8)}] 完成 (本地)，${data.length} 字符`);
   } else {
-    // 上传结果到 R2（带 1 次重试）
+    // 云端模式：上传结果到 R2（带 1 次重试）
     const body = JSON.stringify({
       url: task.url,
       data,
@@ -317,11 +326,12 @@ async function finishTask(taskId, data, error) {
   broadcastState();
 }
 
-// 通知服务端任务完成
-function reportComplete(taskId, error) {
+// 通知服务端任务完成（本地模式时附带 data）
+function reportComplete(taskId, error, data) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     const msg = { type: "taskComplete", taskId };
     if (error) msg.error = error;
+    if (data) msg.data = data;
     ws.send(JSON.stringify(msg));
   }
 }

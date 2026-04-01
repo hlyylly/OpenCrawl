@@ -8,7 +8,8 @@
     "scripting",
     "storage",
     "management",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "alarms"
   ],
   "incognito": "spanning",
   "host_permissions": [

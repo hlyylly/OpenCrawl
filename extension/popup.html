@@ -62,6 +62,27 @@
   .btn:hover { background: #2ea043; }
   .btn.saved { background: #30363d; }
 
+  .mode-switch {
+    display: flex; align-items: center; gap: 8px;
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;
+  }
+  .mode-switch .label { font-size: 11px; color: #8b949e; flex-shrink: 0; }
+  .mode-switch .toggle {
+    display: flex; background: #21262d; border-radius: 4px; overflow: hidden; flex: 1;
+  }
+  .mode-switch .toggle-btn {
+    flex: 1; padding: 5px 0; text-align: center; font-size: 11px; font-weight: 600;
+    cursor: pointer; border: none; background: transparent; color: #8b949e;
+    transition: all .15s;
+  }
+  .mode-switch .toggle-btn.active {
+    background: #238636; color: #fff;
+  }
+  .mode-switch .toggle-btn.active.local {
+    background: #58a6ff;
+  }
+
   .logs {
     background: #161b22; border: 1px solid #30363d;
     border-radius: 6px; padding: 10px;
@@ -85,6 +106,14 @@
   <div class="header">
     <h1><span>Open</span>Crawl</h1>
     <span id="badge" class="badge off">未连接</span>
+  </div>
+
+  <div class="mode-switch">
+    <span class="label">模式</span>
+    <div class="toggle">
+      <button id="modeCloud" class="toggle-btn active">云端</button>
+      <button id="modeLocal" class="toggle-btn">本地</button>
+    </div>
   </div>
 
   <div class="stats">
